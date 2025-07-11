@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+  
+  <!-- Qt QString -->
+  <Type Name="QString">
+    <DisplayString>{d,sb}</DisplayString>
+    <StringView>d,sb</StringView>
+    <Expand>
+      <Item Name="[size]" ExcludeView="simple">d-&gt;size</Item>
+      <Item Name="[referenced]" ExcludeView="simple">d-&gt;ref.atomic._q_value</Item>
+      <ArrayItems>
+        <Size>d-&gt;size</Size>
+        <ValuePointer>(QChar*)((reinterpret_cast&lt;char*&gt;(d)) + d-&gt;offset)</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <!-- Qt QByteArray -->
+  <Type Name="QByteArray">
+    <DisplayString>{d,sb}</DisplayString>
+    <StringView>d,sb</StringView>
+    <Expand>
+      <Item Name="[size]" ExcludeView="simple">d-&gt;size</Item>
+      <Item Name="[capacity]" ExcludeView="simple">d-&gt;alloc</Item>
+      <Item Name="[referenced]" ExcludeView="simple">d-&gt;ref.atomic._q_value</Item>
+      <ArrayItems>
+        <Size>d-&gt;size</Size>
+        <ValuePointer>(char*)((reinterpret_cast&lt;char*&gt;(d)) + d-&gt;offset)</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <!-- Qt QList -->
+  <Type Name="QList&lt;*&gt;">
+    <DisplayString>{{size = {d-&gt;size}}}</DisplayString>
+    <Expand>
+      <Item Name="[size]" ExcludeView="simple">d-&gt;size</Item>
+      <Item Name="[capacity]" ExcludeView="simple">d-&gt;alloc</Item>
+      <ArrayItems>
+        <Size>d-&gt;size</Size>
+        <ValuePointer>(($T1*)(((char*)d) + d-&gt;offset))</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+  <!-- Qt QVector -->
+  <Type Name="QVector&lt;*&gt;">
+    <DisplayString>{{size = {d-&gt;size}}}</DisplayString>
+    <Expand>
+      <Item Name="[size]" ExcludeView="simple">d-&gt;size</Item>
+      <Item Name="[capacity]" ExcludeView="simple">d-&gt;alloc</Item>
+      <ArrayItems>
+        <Size>d-&gt;size</Size>
+        <ValuePointer>(($T1*)(((char*)d) + d-&gt;offset))</ValuePointer>
+      </ArrayItems>
+    </Expand>
+  </Type>
+
+</AutoVisualizer>

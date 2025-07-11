@@ -1,0 +1,60 @@
+# Build directories
+build/
+out/
+x64/
+
+# Visual Studio files
+*.vcxproj.user
+*.sln.docstates
+*.suo
+*.user
+*.aps
+*.pch
+*.vspscc
+*_i.c
+*_p.c
+*.ncb
+*.tlb
+*.tlh
+*.tmp
+*.tmp_proj
+*.log
+*.vspscc
+*.vssscc
+.builds
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+
+# Qt MOC files
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# Compiled executables
+*.exe
+*.dll
+*.pdb
+*.ilk
+
+# Qt Creator
+*.pro.user
+*.pro.user.*
+
+# VS Code
+.vscode/settings.json.bak
+.vscode/launch.json.bak
+.vscode/tasks.json.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*~
