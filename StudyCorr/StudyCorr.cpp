@@ -43,7 +43,9 @@ StudyCorr::StudyCorr(QWidget* parent)
 }
 
 StudyCorr::~StudyCorr()
-{}
+{
+	delete calibrationFactory;
+}
 
 void StudyCorr::SetupUi(int CalibrationIndex, int ComputeIndex)
 {
@@ -59,10 +61,10 @@ void StudyCorr::SetupUi(int CalibrationIndex, int ComputeIndex)
 	QMenu* HelpMenu = Bar->addMenu("帮助");
 	//创建菜单项
 	QAction* NewAction = FileMenu->addAction("新建");
-	NewAction->setIcon(QIcon("icon/1.png"));
+	NewAction->setIcon(QIcon(":/icon/1.png"));
 	FileMenu->addSeparator();//添加分割线
 	QAction* OpenAction = FileMenu->addAction("打开");
-	OpenAction->setIcon(QIcon("icon/6.png"));
+	OpenAction->setIcon(QIcon(":/icon/6.png"));
 
 	// 连接信号和槽
 	connect(NewAction, &QAction::triggered, this, &StudyCorr::CreateNewProject);
@@ -85,10 +87,10 @@ void StudyCorr::SetupUi(int CalibrationIndex, int ComputeIndex)
 	ToolBar->addAction(OpenAction);//接受菜单项，打开文件夹
 	ToolBar->addSeparator();
 	CalibrationButton = ToolBar->addAction("标定");//标定
-	CalibrationButton->setIcon(QIcon("icon/7.png"));
+	CalibrationButton->setIcon(QIcon(":/icon/7.png"));
 	ToolBar->addSeparator();
 	ComputeButton = ToolBar->addAction("计算");//计算
-	ComputeButton->setIcon(QIcon("icon/8.png"));
+	ComputeButton->setIcon(QIcon(":/icon/8.png"));
 
 	//连接信号和槽
 	connect(CalibrationButton, &QAction::triggered, [=]() {
@@ -430,7 +432,7 @@ void StudyCorr::ChessToolBar()
 	chessToolBar->addSeparator();
 
 	StartCalibrationButton = chessToolBar->addAction("开始标定");
-	StartCalibrationButton->setIcon(QIcon("icon/9.png"));
+	StartCalibrationButton->setIcon(QIcon(":/icon/9.png"));
 
 	connect(ComputeButton, &QAction::triggered, [=]()
 	{
@@ -590,15 +592,7 @@ void StudyCorr::ComputeToolBar()
 	connect(stepSizeSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, &StudyCorr::updateROICalculationPoints);
 	connect(subSizeSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, &StudyCorr::updateROICalculationPoints);
 	connect(StartComputeButton, &QAction::triggered, this, [=]() {
-		DiccomputePOIQueue2D(dicConfig_2D);
-		// 计算完成后，显示结果
-		if (!poi_queue_2D.empty()) {
-			qDebug() << "计算完成，结果已存储。";
-			// 可以在这里添加显示结果的逻辑
-		}
-		else {
-			qDebug() << "poi_queue_2D is empty.";
-		}
+		this->DicComputePOIQueue2D(dicConfig);
 	});
 
 	connect(CalibrationButton, &QAction::triggered, [=]() {
@@ -710,7 +704,9 @@ QImage StudyCorr::cvMatToQImage(const cv::Mat& mat)
 
 void StudyCorr::ChessCalibrationButtonClicked()
 {
-	chessCalibration = new ChessCalibration(rowsSpinBox->value(), colsSpinBox->value(), squareSizeSpinBox->value(), LeftCameraFilePath, RightCameraFilePath);
+	calibrationFactory = new Calibrationfactory();
+	calibrationFactory->setModel(Calibrationfactory::CalibrationModel::Chessboard, rowsSpinBox->value(), colsSpinBox->value(), squareSizeSpinBox->value(), LeftCameraFilePath, RightCameraFilePath);
+	chessCalibration = dynamic_cast<ChessCalibration*>(calibrationFactory->getCalibration());
 	bool prefare = chessCalibration->prefareStereoCalibration();
 	if (!prefare)
 	{
@@ -764,55 +760,210 @@ void StudyCorr::ChessCalibrationButtonClicked()
 void StudyCorr::updateROICalculationPoints()
 {
 	int stepSize = stepSizeSpinBox->value();
-    int subSize = subSizeSpinBox->value();
-    drawable1->updateCalculationPoints(stepSize, subSize);
+	int subSize = subSizeSpinBox->value();
+	drawable1->updateCalculationPoints(stepSize, subSize);
 	view1->viewport()->update();
-	dicConfig_2D.LeftComputeFilePath = LeftComputeFilePath;
-    poi_queue_2D.clear();
-    poi_queue_2D.resize(dicConfig_2D.LeftComputeFilePath.size());
-    poi_queue_2D[0] = drawable1->getPOI2DQueue();
-	qDebug() << "updateROICalculationPoints: POI count:" << poi_queue_2D[0].size();
+	dicConfig.LeftComputeFilePath = LeftComputeFilePath;
+	dicConfig.RightComputeFilePath = RightComputeFilePath;
+	poi_queue_L.clear();poi_queue_R.clear();
+	poi_queue_L.resize(dicConfig.LeftComputeFilePath.size());
+	poi_queue_R.resize(dicConfig.LeftComputeFilePath.size());
+	poi_queue_L[0] = drawable1->getPOI2DQueue();
+	poi_queue_R[0] = drawable1->getPOI2DQueue();
+	qDebug() << "updateROICalculationPoints: POI count:" << poi_queue_L[0].size();
 	#pragma omp parallel for
-	for (int i = 1; i < dicConfig_2D.LeftComputeFilePath.size(); ++i) {
-		poi_queue_2D[i] = poi_queue_2D[0]; // 初始化其他帧的POI队列
+	for (int i = 1; i < dicConfig.LeftComputeFilePath.size(); ++i) {
+		poi_queue_L[i] = poi_queue_L[0]; // 初始化其他帧的POI队列
+		poi_queue_R[i] = poi_queue_R[0]; // 初始化其他帧的POI队列
 	}
 }
 
-void StudyCorr::DiccomputePOIQueue2D(DICconfig_2D& dicConfig_2D)
+void StudyCorr::DicComputePOIQueue2D(DICconfig& dicConfig)
 {
-    dicConfig_2D.stepSize = stepSizeSpinBox->value();
-    dicConfig_2D.subSize = subSizeSpinBox->value();
+	dicConfig.stepSize = stepSizeSpinBox->value();
+	dicConfig.subSize = subSizeSpinBox->value();
 
-    opencorr::Image2D ref_img(dicConfig_2D.LeftComputeFilePath[0].toStdString()); // 参考图像
-    double timer_tic = omp_get_wtime();
+	opencorr::Image2D ref_img(dicConfig.LeftComputeFilePath[0].toStdString()); // 参考图像
+	double timer_tic = omp_get_wtime();
 
-    #pragma omp parallel for
-    for (int i = 0; i < dicConfig_2D.LeftComputeFilePath.size(); ++i) 
-    {
-		opencorr::Image2D tar_img(dicConfig_2D.LeftComputeFilePath[i].toStdString()); // 目标图像
+	#pragma omp parallel for
+	for (int i = 0; i < dicConfig.LeftComputeFilePath.size(); ++i) 
+	{
+		opencorr::Image2D tar_img(dicConfig.LeftComputeFilePath[i].toStdString()); // 目标图像
 		opencorr::SIFT2D* sift = new opencorr::SIFT2D();
 		sift->setImages(ref_img, tar_img);
 		sift->prepare();
 		sift->compute();
-		opencorr::FeatureAffine2D* feature_affine = new opencorr::FeatureAffine2D(dicConfig_2D.subSize/2, dicConfig_2D.subSize/2, dicConfig_2D.cpu_thread_number);
+		opencorr::FeatureAffine2D* feature_affine = new opencorr::FeatureAffine2D(dicConfig.subSize/2, dicConfig.subSize/2, dicConfig.cpu_thread_number);
 		feature_affine->setImages(ref_img, tar_img);
 		feature_affine->setKeypointPair(sift->ref_matched_kp, sift->tar_matched_kp);
 		feature_affine->prepare();
-		feature_affine->compute(poi_queue_2D[i]);
+		feature_affine->compute(poi_queue_L[i]);
 
-        opencorr::ICGN2D2 icgn1(dicConfig_2D.subSize/2, dicConfig_2D.subSize/2, 
-            dicConfig_2D.max_deformation_norm, dicConfig_2D.max_iteration, dicConfig_2D.cpu_thread_number);
-        icgn1.setImages(ref_img, tar_img);
-        icgn1.prepare();
-        icgn1.compute(poi_queue_2D[i]);
-    }
-    double timer_toc = omp_get_wtime();
-    double consumed_time = timer_toc - timer_tic;
-    qDebug() << "计算耗时：" << consumed_time << "秒";
-    qDebug() << "计算完成。";
+		opencorr::ICGN2D2 icgn2(dicConfig.subSize/2, dicConfig.subSize/2, 
+			dicConfig.max_deformation_norm, dicConfig.max_iteration, dicConfig.cpu_thread_number);
+		icgn2.setImages(ref_img, tar_img);
+		icgn2.prepare();
+		icgn2.compute(poi_queue_L[i]);
+	}
+	double timer_toc = omp_get_wtime();
+	double consumed_time = timer_toc - timer_tic;
+	qDebug() << "计算耗时：" << consumed_time << "秒";
+	qDebug() << "计算完成。";
 }
 
-void StudyCorr::downloadData()
+// void StudyCorr::DicComputePOIQueue2DS(DICconfig &dicConfig)
+// {
+// 	dicConfig.stepSize = stepSizeSpinBox->value();
+// 	dicConfig.subSize = subSizeSpinBox->value();
+
+// 	// 1. 加载参考帧左右图像
+// 	opencorr::Image2D ref_img(dicConfig.LeftComputeFilePath[0].toStdString());
+// 	opencorr::Image2D ref_img_r(dicConfig.RightComputeFilePath[0].toStdString());
+
+// 	// 2. 设置相机参数（应从标定结果获取，这里为示例硬编码）
+// 	opencorr::CameraIntrinsics view1_cam_intrinsics, view2_cam_intrinsics;
+// 	opencorr::CameraExtrinsics view1_cam_extrinsics, view2_cam_extrinsics;
+// 	view1_cam_intrinsics.fx = 6673.315918f;
+// 	view1_cam_intrinsics.fy = 6669.302734f;
+// 	view1_cam_intrinsics.fs = 0.f;
+// 	view1_cam_intrinsics.cx = 872.15778f;
+// 	view1_cam_intrinsics.cy = 579.95532f;
+// 	view1_cam_intrinsics.k1 = 0.032258954f;
+// 	view1_cam_intrinsics.k2 = -1.01141417f;
+// 	view1_cam_intrinsics.k3 = 29.78838921f;
+// 	view1_cam_intrinsics.k4 = 0;
+// 	view1_cam_intrinsics.k5 = 0;
+// 	view1_cam_intrinsics.k6 = 0;
+// 	view1_cam_intrinsics.p1 = 0;
+// 	view1_cam_intrinsics.p2 = 0;
+// 	view1_cam_extrinsics.tx = 0;
+// 	view1_cam_extrinsics.ty = 0;
+// 	view1_cam_extrinsics.tz = 0;
+// 	view1_cam_extrinsics.rx = 0;
+// 	view1_cam_extrinsics.ry = 0;
+// 	view1_cam_extrinsics.rz = 0;
+
+// 	view2_cam_intrinsics.fx = 6607.618164f;
+// 	view2_cam_intrinsics.fy = 6602.857422f;
+// 	view2_cam_intrinsics.fs = 0.f;
+// 	view2_cam_intrinsics.cx = 917.9733887f;
+// 	view2_cam_intrinsics.cy = 531.6352539f;
+// 	view2_cam_intrinsics.k1 = 0.064598486f;
+// 	view2_cam_intrinsics.k2 = -4.531373978f;
+// 	view2_cam_intrinsics.k3 = 29.78838921f;
+// 	view2_cam_intrinsics.k4 = 0;
+// 	view2_cam_intrinsics.k5 = 0;
+// 	view2_cam_intrinsics.k6 = 0;
+// 	view2_cam_intrinsics.p1 = 0;
+// 	view2_cam_intrinsics.p2 = 0;
+// 	view2_cam_extrinsics.tx = 122.24886f;
+// 	view2_cam_extrinsics.ty = 1.8488892f;
+// 	view2_cam_extrinsics.tz = 17.624638f;
+// 	view2_cam_extrinsics.rx = 0.00307711f;
+// 	view2_cam_extrinsics.ry = -0.33278773f;
+// 	view2_cam_extrinsics.rz = 0.00524556f;
+
+// 	opencorr::Calibration cam_view1_calib(view1_cam_intrinsics, view1_cam_extrinsics);
+// 	opencorr::Calibration cam_view2_calib(view2_cam_intrinsics, view2_cam_extrinsics);
+// 	cam_view1_calib.prepare(ref_img.height, ref_img.width);
+// 	cam_view2_calib.prepare(ref_img_r.height, ref_img_r.width);
+
+// 	int cpu_thread_number = dicConfig.cpu_thread_number > 0 ? dicConfig.cpu_thread_number : omp_get_num_procs() - 1;
+// 	omp_set_num_threads(cpu_thread_number);
+
+// 	opencorr::Stereovision stereo_reconstruction(&cam_view1_calib, &cam_view2_calib, cpu_thread_number);
+
+// 	double timer_tic = omp_get_wtime();
+
+// 	// 遍历所有帧，进行3D-DIC
+// 	#pragma omp parallel for
+// 	for (int i = 0; i < dicConfig.LeftComputeFilePath.size(); ++i)
+// 	{
+// 		opencorr::Image2D tar_img(dicConfig.LeftComputeFilePath[i].toStdString());
+// 		opencorr::Image2D tar_img_r(dicConfig.RightComputeFilePath[i].toStdString());
+
+// 		// 1) 左图时序匹配（SIFT+仿射+ICGN1）
+// 		opencorr::SIFT2D sift_l;
+// 		sift_l.setImages(ref_img, tar_img);
+// 		sift_l.prepare();
+// 		sift_l.compute();
+
+// 		opencorr::FeatureAffine2D feature_affine_l(dicConfig.subSize/2, dicConfig.subSize/2, cpu_thread_number);
+// 		feature_affine_l.setImages(ref_img, tar_img);
+// 		feature_affine_l.setKeypointPair(sift_l.ref_matched_kp, sift_l.tar_matched_kp);
+// 		feature_affine_l.prepare();
+// 		feature_affine_l.compute(poi_queue_L[i]);
+
+// 		opencorr::ICGN2D1 icgn1_l(dicConfig.subSize/2, dicConfig.subSize/2, 
+// 			dicConfig.max_deformation_norm, dicConfig.max_iteration, cpu_thread_number);
+// 		icgn1_l.setImages(ref_img, tar_img);
+// 		icgn1_l.prepare();
+// 		icgn1_l.compute(poi_queue_L[i]);
+
+// 		// 2) 右图时序匹配（SIFT+仿射+ICGN1）
+// 		opencorr::SIFT2D sift_r;
+// 		sift_r.setImages(ref_img_r, tar_img_r);
+// 		sift_r.prepare();
+// 		sift_r.compute();
+
+// 		opencorr::FeatureAffine2D feature_affine_r(dicConfig.subSize/2, dicConfig.subSize/2, cpu_thread_number);
+// 		feature_affine_r.setImages(ref_img_r, tar_img_r);
+// 		feature_affine_r.setKeypointPair(sift_r.ref_matched_kp, sift_r.tar_matched_kp);
+// 		feature_affine_r.prepare();
+// 		feature_affine_r.compute(poi_queue_R[i]);
+
+// 		opencorr::ICGN2D1 icgn1_r(dicConfig.subSize/2, dicConfig.subSize/2, 
+// 			dicConfig.max_deformation_norm, dicConfig.max_iteration, cpu_thread_number);
+// 		icgn1_r.setImages(ref_img_r, tar_img_r);
+// 		icgn1_r.prepare();
+// 		icgn1_r.compute(poi_queue_R[i]);
+
+// 		// 3) 立体重建
+// 		std::vector<opencorr::Point2D> ref_view1_pt, ref_view2_pt, tar_view1_pt, tar_view2_pt;
+// 		std::vector<opencorr::Point3D> ref_pt_3d, tar_pt_3d;
+// 		ref_view1_pt.reserve(poi_queue_L[i].size());
+// 		ref_view2_pt.reserve(poi_queue_R[i].size());
+// 		tar_view1_pt.reserve(poi_queue_L[i].size());
+// 		tar_view2_pt.reserve(poi_queue_R[i].size());
+// 		ref_pt_3d.resize(poi_queue_L[i].size());
+// 		tar_pt_3d.resize(poi_queue_L[i].size());
+
+// 		for (size_t j = 0; j < poi_queue_L[i].size(); ++j) {
+// 			// 参考帧左右视点
+// 			ref_view1_pt.push_back(opencorr::Point2D(poi_queue_L[i][j].x, poi_queue_L[i][j].y));
+// 			ref_view2_pt.push_back(opencorr::Point2D(poi_queue_R[i][j].x, poi_queue_R[i][j].y));
+// 			// 目标帧左右视点
+// 			tar_view1_pt.push_back(opencorr::Point2D(
+// 				poi_queue_L[i][j].x + poi_queue_L[i][j].deformation.u,
+// 				poi_queue_L[i][j].y + poi_queue_L[i][j].deformation.v));
+// 			tar_view2_pt.push_back(opencorr::Point2D(
+// 				poi_queue_R[i][j].x + poi_queue_R[i][j].deformation.u,
+// 				poi_queue_R[i][j].y + poi_queue_R[i][j].deformation.v));
+// 		}
+
+// 		stereo_reconstruction.prepare();
+// 		stereo_reconstruction.reconstruct(ref_view1_pt, ref_view2_pt, ref_pt_3d);
+// 		stereo_reconstruction.reconstruct(tar_view1_pt, tar_view2_pt, tar_pt_3d);
+
+// 		// 保存3D结果到poi_queue_2DS
+// 		for (size_t j = 0; j < poi_queue_R[i].size(); ++j) {
+// 			poi_queue_R[i][j].ref_coor = ref_pt_3d[j];
+// 			poi_queue_R[i][j].tar_coor = tar_pt_3d[j];
+// 			poi_queue_R[i][j].deformation.u = tar_pt_3d[j].x - ref_pt_3d[j].x;
+// 			poi_queue_R[i][j].deformation.v = tar_pt_3d[j].y - ref_pt_3d[j].y;
+// 			poi_queue_R[i][j].deformation.w = tar_pt_3d[j].z - ref_pt_3d[j].z;
+// 		}
+// 	}
+
+// 	double timer_toc = omp_get_wtime();
+// 	double consumed_time = timer_toc - timer_tic;
+// 	qDebug() << "3D-DIC计算耗时：" << consumed_time << "秒";
+// 	qDebug() << "3D-DIC计算完成。";
+// }
+
+
+void StudyCorr::downloadData()	
 {
 	// 使用 QFileDialog 选择文件夹路径
 	QString folder = QFileDialog::getExistingDirectory(this, "选择数据下载目录");
@@ -829,15 +980,15 @@ void StudyCorr::downloadData()
 		}
 
 		// 在这里添加下载数据的逻辑
-		opencorr::Image2D ref_img(dicConfig_2D.LeftComputeFilePath[0].toStdString());
+		opencorr::Image2D ref_img(dicConfig.LeftComputeFilePath[0].toStdString());
 		std::string delimiter = ",";
 		int ref_height = ref_img.height;
 		int ref_width = ref_img.width;
 
 		#pragma omp parallel for
-		for (int i = 0; i < dicConfig_2D.LeftComputeFilePath.size(); ++i)
+		for (int i = 0; i < dicConfig.LeftComputeFilePath.size(); ++i)
 		{
-			std::string tempfile_path = dicConfig_2D.LeftComputeFilePath[i].toStdString();
+			std::string tempfile_path = dicConfig.LeftComputeFilePath[i].toStdString();
 			// 获取文件名（不带路径）
 			QString qfileName = QFileInfo(QString::fromStdString(tempfile_path)).baseName();
 			// 拼接保存路径
@@ -849,7 +1000,7 @@ void StudyCorr::downloadData()
 			in_out.setHeight(ref_height);
 			in_out.setWidth(ref_width);
 			in_out.setPath(file_path);
-			in_out.saveTable2D(poi_queue_2D[i]);
+			in_out.saveTable2D(poi_queue_L[i]);
 		}
 		QMessageBox::information(this, "成功", "数据下载成功！");
 	}

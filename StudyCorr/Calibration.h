@@ -5,25 +5,33 @@
 #include<QStringList>
 #include<QDebug>
 
-enum class CalibrationModel
+
+class Calibration
 {
-    Chessboard,
-    Circle
+public:
+    Calibration() = default;
+    ~Calibration()= default;
+    virtual bool prefareMonocularCalibration() = 0; // 准备单目标定
+    virtual void startMonocularCompute() = 0; // 开始单目标定
+    virtual bool prefareStereoCalibration() = 0; // 准备双目标定
+    virtual void startStereoCalibration() = 0; // 开始双目标定
+    virtual cv::Mat computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const = 0; // 重投影矩阵
+    virtual void drawCornersAndAxes(cv::Mat& img, const std::vector<cv::Point2f>& corners, cv::Size boardSize, bool found) = 0; // 绘制角点和坐标轴
 };
 
 
-class ChessCalibration
+class ChessCalibration: public Calibration
 {
 public:
     ChessCalibration(int rows,int cols,int squareSize, QStringList chessPath);
     ChessCalibration(int rows, int cols, int squareSize, QStringList chessPathLeft, QStringList chessPathRight);
     ~ChessCalibration();
-	bool prefareMonocularCalibration();//准备单目标定
-	void startMonocularCompute();//开始单目标定
-    cv::Mat computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const;//重投影矩阵
-	bool prefareStereoCalibration();//准备双目标定
-	void startStereoCalibration();//开始双目标定
-    void drawCornersAndAxes(cv::Mat& img, const std::vector<cv::Point2f>& corners, cv::Size boardSize, bool found);
+	bool prefareMonocularCalibration() override;//准备单目标定
+	void startMonocularCompute() override;//开始单目标定
+	bool prefareStereoCalibration() override;//准备双目标定
+	void startStereoCalibration() override;//开始双目标定
+    cv::Mat computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const override; // 重投影矩阵
+    void drawCornersAndAxes(cv::Mat& img, const std::vector<cv::Point2f>& corners, cv::Size boardSize, bool found) override;
     std::vector<cv::Mat> img1_frames;//用于储存drawCornersAndAxes绘制的图片
     std::vector<cv::Mat> img2_frames;
     cv::Mat cameraMatrix1, cameraMatrix2;
@@ -40,18 +48,18 @@ private:
     std::vector< std::string> chessPath, chessPathLeft, chessPathRight;
 };
 
-class CircleCalibration
+class CircleCalibration: public Calibration
 {
 public:
     CircleCalibration(int rows, int cols, int squareSize, QStringList circlePath);
     CircleCalibration(int rows, int cols, int squareSize, QStringList circlePathLeft, QStringList circlePathRight);
     ~CircleCalibration();
-    bool prefareMonocularCalibration();//准备单目标定
-    void startMonocularCompute();//开始单目标定
-    bool prefareStereoCalibration();//准备双目标定
-    void startStereoCalibration();//开始双目标定
-    cv::Mat computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const;//重投影矩阵
-    void drawCornersAndAxes(cv::Mat& img, const std::vector<cv::Point2f>& corners, cv::Size boardSize, bool found);
+    bool prefareMonocularCalibration() override;//准备单目标定
+    void startMonocularCompute() override;//开始单目标定
+    bool prefareStereoCalibration() override;//准备双目标定
+    void startStereoCalibration() override;//开始双目标定
+    cv::Mat computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const override;//重投影矩阵
+    void drawCornersAndAxes(cv::Mat& img, const std::vector<cv::Point2f>& corners, cv::Size boardSize, bool found) override; // 绘制角点和坐标轴
     std::vector<cv::Mat> img1_frames;//用于储存drawCornersAndAxes绘制的图片
     std::vector<cv::Mat> img2_frames;
     cv::Mat cameraMatrix1;

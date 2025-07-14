@@ -1,14 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
-project(StudyCorr VERSION 1.0.0 LANGUAGES CXX)
+project(StudyCorr VERSION 1.0.0 LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTORCC ON)
 
-# 强制设置为Release构建类型
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
-endif()
-set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+set(CMAKE_BUILD_TYPE Release)
 
 # 确保MSVC使用正确的C++17标志和Release优化
 if(MSVC)
@@ -50,37 +47,16 @@ link_directories(
 )
 
 # Source files
-set(SOURCES
-    StudyCorr/main.cpp
-    StudyCorr/StudyCorr.cpp
-    StudyCorr/Calibration.cpp
-    StudyCorr/CalibrationLoadDialog.cpp
-    StudyCorr/ComputeLoadDialog.cpp
-    StudyCorr/customPixmapItem.cpp
-    StudyCorr/Drawable.cpp
-    StudyCorr/Shape.cpp
-    API/OpenCorr/src/oc_poi.cpp
-    API/OpenCorr/src/oc_image.cpp
-    API/OpenCorr/src/oc_dic.cpp
-    API/OpenCorr/src/oc_array.cpp
-    API/OpenCorr/src/oc_calibration.cpp
-    API/OpenCorr/src/oc_cubic_bspline.cpp
-    API/OpenCorr/src/oc_deformation.cpp
-    API/OpenCorr/src/oc_epipolar_search.cpp
-    API/OpenCorr/src/oc_feature_affine.cpp
-    API/OpenCorr/src/oc_feature.cpp
-    API/OpenCorr/src/oc_fftcc.cpp
-    API/OpenCorr/src/oc_gradient.cpp
-    API/OpenCorr/src/oc_icgn.cpp
-    API/OpenCorr/src/oc_io.cpp
-    API/OpenCorr/src/oc_nearest_neighbor.cpp
-    API/OpenCorr/src/oc_nr.cpp
-    API/OpenCorr/src/oc_point.cpp
-    API/OpenCorr/src/oc_sift.cpp
-    API/OpenCorr/src/oc_stereovision.cpp
-    API/OpenCorr/src/oc_subset.cpp
-    API/OpenCorr/src/oc_strain.cpp
+file(GLOB STUDYCORR_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr/*.cpp
 )
+file(GLOB OPENCORR_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/API/OpenCorr/src/*.cpp
+)
+file(GLOB STUDYCORR_CUDA_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_CUDA/*.cu
+)
+set(SOURCES ${STUDYCORR_SOURCES} ${OPENCORR_SOURCES} ${STUDYCORR_CUDA_SOURCES})
 
 # Header files that need MOC processing
 set(MOC_HEADERS
@@ -91,10 +67,15 @@ set(MOC_HEADERS
 )
 
 # Other header files
+file(GLOB STUDYCORR_CUDA_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_CUDA/*.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_CUDA/*.cuh
+)
 set(HEADERS
     StudyCorr/Calibration.h
     StudyCorr/customPixmapItem.h
     StudyCorr/Shape.h
+    ${STUDYCORR_CUDA_HEADERS}
 )
 
 # UI files

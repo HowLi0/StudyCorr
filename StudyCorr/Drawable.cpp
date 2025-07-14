@@ -53,8 +53,11 @@ void Drawable::handleMouseRelease(QGraphicsSceneMouseEvent* event) {
 
 void Drawable::resetDrawing() {
     // 如果是拖拽绘制器，先清理状态
-    if (DragDrawer* dragDrawer = dynamic_cast<DragDrawer*>(shapeDrawer)) {
-        dragDrawer->cleanup();
+    if (shapeDrawer && drawMode == Drag) {
+        DragDrawer* dragDrawer = dynamic_cast<DragDrawer*>(shapeDrawer);
+        if (dragDrawer) {
+            dragDrawer->cleanup();
+        }
     }
     
     delete shapeDrawer;

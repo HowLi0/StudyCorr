@@ -12,26 +12,88 @@
 #include"opencorr.h"
 
 
-struct DICconfig_2D
+class Calibrationfactory
 {
-    int squareSize; // 棋盘格方块大小
-    int rows; // 棋盘格行数
-    int cols; // 棋盘格列数
+public:
+    enum class CalibrationModel { Chessboard, Circle };
+    Calibrationfactory() = default;
+    ~Calibrationfactory() { delete calibration_; }
+
+    void setModel(CalibrationModel model, int rows, int cols, int squareSize, const QStringList& leftFiles, const QStringList& rightFiles)
+    {
+        currentModel_ = model;
+        delete calibration_;
+        calibration_ = nullptr;
+        switch (model) {
+        case CalibrationModel::Chessboard:
+            calibration_ = new ChessCalibration(rows, cols, squareSize, leftFiles, rightFiles);
+            break;
+        case CalibrationModel::Circle:
+            calibration_ = new CircleCalibration(rows, cols, squareSize, leftFiles, rightFiles);
+            break;
+        default:
+            qDebug() << "Unknown calibration model.";
+        }
+    }
+
+    CalibrationModel getModel() const { return currentModel_; }
+    Calibration* getCalibration() const { return calibration_; }
+
+private:
+    CalibrationModel currentModel_ = CalibrationModel::Chessboard;
+    Calibration* calibration_ = nullptr;
+};
+
+struct DICconfig
+{
     int stepSize; // 步长
     int subSize; // 子区域大小
-    int max_iteration = 10;// 最大迭代次数
-	float max_deformation_norm = 0.001f;// 最大变形范数
-    int computeType = 0; // 计算类型
+    int max_iteration;// 最大迭代次数
+	float max_deformation_norm;// 最大变形范数
+    int computeType; // 计算类型，0表示CPU，1表示CUDA
     int cpu_thread_number;
     QStringList LeftComputeFilePath;//储存散斑文件信息
+    QStringList RightComputeFilePath;
 
-    DICconfig_2D()
-        : squareSize(0), rows(0), cols(0), stepSize(0), subSize(0), computeType(0)
+    DICconfig()
+        : stepSize(5), subSize(30), max_iteration(10), max_deformation_norm(0.001f), computeType(0)
     {
         cpu_thread_number = omp_get_num_procs() - 1;
         omp_set_num_threads(cpu_thread_number);
         LeftComputeFilePath.clear();
+        RightComputeFilePath.clear();
     }
+};
+
+class DICfactory
+{
+    public:
+        enum class DICModel { DIC2D, DIC3D };
+        enum class ComputeType { cpu, cuda };
+        DICfactory() = default;
+        ~DICfactory() = default;
+
+        void setDICModel(DICModel model, const DICconfig& config)
+        {
+            currentModel_ = model;
+            dicConfig_2D_ = config;
+        }
+        DICModel getDICModel() const { return currentModel_; }
+        void setComputeType(ComputeType type)
+        {
+            if (type == ComputeType::cpu) {
+                dicConfig_2D_.computeType = 0;
+            } else if (type == ComputeType::cuda) {
+                dicConfig_2D_.computeType = 1;
+            }
+        }
+        ComputeType getComputeType() const
+        {
+            return (dicConfig_2D_.computeType == 0) ? ComputeType::cpu : ComputeType::cuda;
+        }
+    private:
+        DICModel currentModel_ = DICModel::DIC2D;
+        DICconfig dicConfig_2D_;
 };
 
 
@@ -44,7 +106,7 @@ public:
     ~StudyCorr();
 	static int CalibrationIndex;//标定索引,用于区分不同的标定
 	static int ComputeIndex;//计算索引,用于区分不同的计算
-    DICconfig_2D dicConfig_2D; // DIC 配置参数
+    DICconfig dicConfig; // DIC 配置参数
 
 private:
     //****************************************************标定信息****************************************************//
@@ -53,13 +115,14 @@ private:
     QStringList LeftCameraFilePath;//储存标定文件信息
     QStringList RightCameraFilePath;
     QMap<int, QPair<QStringList, QStringList>> calibrationImageFiles;
+    Calibrationfactory* calibrationFactory = nullptr;
     //****************************************************计算信息****************************************************//
     QStringList LeftComputeFilePath;//储存散斑文件信息
     QStringList RightComputeFilePath;
     QMap<int, QPair<QStringList, QStringList>> computeImageFiles;
     ChessCalibration* chessCalibration = nullptr;
-    std::vector<std::vector<opencorr::POI2D>> poi_queue_2D; // 存储所有的 POI
-    std::vector<std::vector<opencorr::POI2DS>> poi_queue_2DS; // 存储所有的 POI
+    std::vector<std::vector<opencorr::POI2D>> poi_queue_L; // 存储所有的 POI
+    std::vector<std::vector<opencorr::POI2D>> poi_queue_R; // 存储所有的 POI
     //****************************************************工作区控件****************************************************//
     QTabWidget* TabWidget = nullptr;
     QTreeWidget* TreeWidget1 = nullptr;
@@ -131,9 +194,11 @@ private:
 
     //****************************************************ROI/POI****************************************************//
     void updateROICalculationPoints();
-    void DiccomputePOIQueue2D(DICconfig_2D& dicConfig_2D);
+    void DicComputePOIQueue2D(DICconfig& dicConfig);
+    void DicComputePOIQueue2DS(DICconfig& dicConfig);
     //void computePOIQueue2DS();
 
     //****************************************************downloaddata****************************************************//
     void downloadData();
 };
+
