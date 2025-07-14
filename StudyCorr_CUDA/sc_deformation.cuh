@@ -1,6 +1,23 @@
 #pragma once
 #include "sc_point.h"
 
+/*
+    int n = ...;
+    StudyCorr::CudaDeformation2D1* d_defs;
+    StudyCorr::Point2D* d_pts_in;
+    StudyCorr::Point2D* d_pts_out;
+    cudaMalloc(&d_defs, n * sizeof(StudyCorr::CudaDeformation2D1));
+    cudaMalloc(&d_pts_in, n * sizeof(StudyCorr::Point2D));
+    cudaMalloc(&d_pts_out, n * sizeof(StudyCorr::Point2D));
+
+    // ...拷贝内存、准备数据...
+
+    int block = 256, grid = (n + block - 1) / block;
+    StudyCorr::batch_warp_2d1_kernel<<<grid, block>>>(d_defs, d_pts_in, d_pts_out, n);
+
+    cudaDeviceSynchronize();
+*/
+
 namespace StudyCorr
 {
 
