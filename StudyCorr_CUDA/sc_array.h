@@ -44,6 +44,12 @@ struct Array1D
         data = CudaAllocator<T>().allocate(size_);
         assert(data);
     }
+    Array1D(size_t size_, const T& value) : size(size_)
+    {
+    data = CudaAllocator<T>().allocate(size_);
+    assert(data);
+    for (size_t i = 0; i < size_; ++i) data[i] = value;
+    }
     ~Array1D()
     {
         if (data) CudaAllocator<T>().deallocate(data);
@@ -70,6 +76,14 @@ struct Array2D
     {
         data = CudaAllocator<T>().allocate(rows_ * cols_);
         assert(data);
+    }
+    Array2D(size_t rows_, size_t cols_, const T& value) : rows(rows_), cols(cols_)
+    {
+        data = CudaAllocator<T>().allocate(rows_ * cols_);
+        assert(data);
+        for (size_t i = 0; i < rows_; ++i)
+            for (size_t j = 0; j < cols_; ++j)
+                data[i * cols + j] = value;
     }
 
     ~Array2D()
@@ -102,6 +116,15 @@ struct Array3D //[i][j][k],最外层 i，中层 j，最内层 k,i 个块（每�
         data = CudaAllocator<T>().allocate(d1_ * d2_ * d3_);
         assert(data);
     }
+    Array3D(size_t d1_, size_t d2_, size_t d3_, const T& value) : d1(d1_), d2(d2_), d3(d3_)
+    {
+        data = CudaAllocator<T>().allocate(d1_ * d2_ * d3_);
+        assert(data);
+        for (size_t i = 0; i < d1_; ++i)
+            for (size_t j = 0; j < d2_; ++j)
+                for (size_t k = 0; k < d3_; ++k)
+                    data[(i * d2 + j) * d3 + k] = value;
+    }
 
     ~Array3D()
     {
@@ -133,6 +156,17 @@ struct Array4D
     {
         data = CudaAllocator<T>().allocate(d1_ * d2_ * d3_ * d4_);
         assert(data);
+    }
+
+    Array4D(size_t d1_, size_t d2_, size_t d3_, size_t d4_, const T& value) : d1(d1_), d2(d2_), d3(d3_), d4(d4_)
+    {
+        data = CudaAllocator<T>().allocate(d1_ * d2_ * d3_ * d4_);
+        assert(data);
+        for (size_t i = 0; i < d1_; ++i)
+            for (size_t j = 0; j < d2_; ++j)
+                for (size_t k = 0; k < d3_; ++k)
+                    for (size_t l = 0; l < d4_; ++l)
+                        data[((i * d2 + j) * d3 + k) * d4 + l] = value;
     }
 
     ~Array4D()

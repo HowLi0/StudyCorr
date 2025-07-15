@@ -11,7 +11,8 @@
 namespace StudyCorr
 {
 
-    // 四阶精度的2D一阶梯度
+    // 四阶中心差分精度的2D一阶梯度
+    //grad = [ -f(c+2) + 8*f(c+1) - 8*f(c-1) + f(c-2) ] / 12
     class Gradient2D4
     {
     public:
