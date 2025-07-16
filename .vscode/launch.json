@@ -17,25 +17,7 @@
         ],
         "console": "externalTerminal",
         "preLaunchTask": "Build Release",
-        "visualizerFile": "c:\\Users\\admin\\AppData\\Roaming\\Code\\User\\workspaceStorage\\9aae76e28187c08cd054804ce9ce3237\\tonka3000.qtvsctools\\qt.natvis.xml"
-    },
-    {
-        "name": "调试 StudyCorr (Debug)",
-        "type": "cppvsdbg",
-        "request": "launch",
-        "program": "${workspaceFolder}/build/bin/Debug/StudyCorr.exe",
-        "args": [],
-        "stopAtEntry": false,
-        "cwd": "${workspaceFolder}",
-        "environment": [
-            {
-                "name": "OMP_NUM_THREADS",
-                "value": "4"
-            }
-        ],
-        "console": "externalTerminal",
-        "preLaunchTask": "Build Debug",
-        "visualizerFile": "c:\\Users\\admin\\AppData\\Roaming\\Code\\User\\workspaceStorage\\9aae76e28187c08cd054804ce9ce3237\\tonka3000.qtvsctools\\qt.natvis.xml"
+        "visualizerFile": "c:\\Users\\Mouse\\AppData\\Roaming\\Code\\User\\workspaceStorage\\dbb996e40653abac176c4998ec6a466f\\tonka3000.qtvsctools\\qt.natvis.xml"
     }
 ]
 }

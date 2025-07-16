@@ -158,7 +158,7 @@ __global__ void cuda_affine_ransac_kernel(
     pois[i].result.iteration = float(trial_counter);
 }
 
-void FeatureAffine2D::compute(Array2D<CudaPOI2D>& poi_queue)
+CUDA_HD void FeatureAffine2D::compute(Array2D<CudaPOI2D>& poi_queue)
 {
     int nrows = int(poi_queue.dim1());
     int ncols = int(poi_queue.dim2());

@@ -11,10 +11,8 @@
 
 #include "cudaImage.h"
 #include "cudaSift.h"
-#include "cudaSiftD.h"
+#include "cudaSiftD.cuh"
 #include "cudaSiftH.h"
-
-#include "cudaSiftD.cu"
 
 void InitCuda(int devNum)
 {
