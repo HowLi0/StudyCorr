@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(StudyCorr VERSION 1.0.0 LANGUAGES CXX CUDA)
 
+# 设置支持的 CUDA 架构（以 75/86/89/90 为例，具体可查你的显卡）
+set(CMAKE_CUDA_ARCHITECTURES 75 86 89 90)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTORCC ON)
@@ -9,7 +11,7 @@ set(CMAKE_BUILD_TYPE Release)
 
 # 确保MSVC使用正确的C++17标志和Release优化
 if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:__cplusplus")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:__cplusplus /permissive-")
     set(CMAKE_CXX_FLAGS_RELEASE "/O2 /Ob2 /DNDEBUG")
     add_compile_definitions(_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS)
 endif()
@@ -58,6 +60,7 @@ file(GLOB OPENCORR_SOURCES
 file(GLOB CUSIFT_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/API/cuSIFT/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/API/cuSIFT/*.cu
+    ${CMAKE_CURRENT_SOURCE_DIR}/API/cuSIFT/*.cuh
 )
 file(GLOB STUDYCORR_CUDA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_CUDA/*.cu

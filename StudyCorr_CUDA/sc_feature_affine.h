@@ -32,11 +32,11 @@ public:
     void setAffineConfig(const AffineRansacConfig& cfg);
     void setSearchParameters(float radius, int min_neighbor_num);
 
-    void prepare() override {}
+    CUDA_HD void prepare() override {}
 
-    void compute(CudaPOI2D* poi) override {}
+    CUDA_HD void compute(CudaPOI2D* poi) override {}
 
-    void compute(Array2D<CudaPOI2D>& poi_queue) override;
+    CUDA_HD void compute(Array2D<CudaPOI2D>& poi_queue) override;
 
 private:
     Array1D<Point2D> ref_pts_, tar_pts_;

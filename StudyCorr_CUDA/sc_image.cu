@@ -1,7 +1,7 @@
 #include "sc_image.h"
 #include <fstream>
 
-namespace opencorr
+namespace StudyCorr
 {
     void CudaImage2D::load(const std::string& file_path_) 
     {
