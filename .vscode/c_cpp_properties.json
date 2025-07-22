@@ -4,7 +4,8 @@
             "name": "Win32",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/StudyCorr",
+                "${workspaceFolder}/StudyCorr/**",
+                "${workspaceFolder}/StudyCorr_GPU/**",
                 "${workspaceFolder}/API/OpenCorr/src",
                 "${workspaceFolder}/API/opencv/include",
                 "${workspaceFolder}/API/opencv/include/opencv2",
@@ -12,8 +13,8 @@
                 "${workspaceFolder}/API/Eigen3",
                 "${workspaceFolder}/API/Eigen3/Eigen",
                 "${workspaceFolder}/API/nanoflann",
-                "D:/SoftWare/Qt/6.7.2/msvc2019_64/include/**",
-                "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.9/include"
+                "D:/QT/QTcreator/6.7.0/msvc2019_64/include/**",//"D:/SoftWare/Qt/6.7.2/msvc2019_64/include/**",
+                "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.8/include"
             ],
             "defines": [
                 "_DEBUG",
@@ -29,7 +30,7 @@
                 "QT_OPENGLWIDGETS_LIB"
             ],
             "windowsSdkVersion": "10.0.22621.0",
-            "compilerPath": "D:/SoftWare/VisualStudio/VS_IDE/VC/Tools/MSVC/14.43.34808/bin/Hostx64/x64/cl.exe",
+            "compilerPath": "D:/Visual Studio/VS  IDE/VC/Tools/MSVC/14.43.34808/bin/Hostx64/x64/cl.exe",//"D:/SoftWare/VisualStudio/VS_IDE/VC/Tools/MSVC/14.43.34808/bin/Hostx64/x64/cl.exe",
             "cStandard": "c17",
             "cppStandard": "c++17",
             "intelliSenseMode": "windows-msvc-x64",

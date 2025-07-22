@@ -592,7 +592,8 @@ void StudyCorr::ComputeToolBar()
 	connect(stepSizeSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, &StudyCorr::updateROICalculationPoints);
 	connect(subSizeSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, &StudyCorr::updateROICalculationPoints);
 	connect(StartComputeButton, &QAction::triggered, this, [=]() {
-		this->DicComputePOIQueue2D(dicConfig);
+		//this->DicComputePOIQueue2DCPU(dicConfig);
+		this->DicComputePOIQueue2DGPU(dicConfig);
 	});
 
 	connect(CalibrationButton, &QAction::triggered, [=]() {
@@ -765,20 +766,26 @@ void StudyCorr::updateROICalculationPoints()
 	view1->viewport()->update();
 	dicConfig.LeftComputeFilePath = LeftComputeFilePath;
 	dicConfig.RightComputeFilePath = RightComputeFilePath;
-	poi_queue_L.clear();poi_queue_R.clear();
-	poi_queue_L.resize(dicConfig.LeftComputeFilePath.size());
-	poi_queue_R.resize(dicConfig.LeftComputeFilePath.size());
-	poi_queue_L[0] = drawable1->getPOI2DQueue();
-	poi_queue_R[0] = drawable1->getPOI2DQueue();
-	qDebug() << "updateROICalculationPoints: POI count:" << poi_queue_L[0].size();
-	#pragma omp parallel for
-	for (int i = 1; i < dicConfig.LeftComputeFilePath.size(); ++i) {
-		poi_queue_L[i] = poi_queue_L[0]; // 初始化其他帧的POI队列
-		poi_queue_R[i] = poi_queue_R[0]; // 初始化其他帧的POI队列
+
+	int nFrames = dicConfig.LeftComputeFilePath.size();
+	if (nFrames == 0) return;
+
+	auto basePOI2D = drawable1->getPOI2DQueue();
+	auto baseCudaPOI2D = drawable1->getCudaPOI2DQueue();
+	int nPOI = basePOI2D.size();
+	poi_queue_opencorr.clear();
+	poi_queue_studycorr.clear();
+	poi_queue_opencorr.resize(nFrames);
+	poi_queue_studycorr.resize(nFrames);
+
+	for (int i = 0; i < nFrames; ++i) {
+		poi_queue_opencorr[i].assign(basePOI2D.begin(), basePOI2D.end());
+		poi_queue_studycorr[i].assign(baseCudaPOI2D.begin(), baseCudaPOI2D.end());
 	}
+	qDebug() << "updateROICalculationPoints: POI count:" << poi_queue_studycorr[0].size() << "for frame 0";
 }
 
-void StudyCorr::DicComputePOIQueue2D(DICconfig& dicConfig)
+void StudyCorr::DicComputePOIQueue2DCPU(DICconfig& dicConfig)
 {
 	dicConfig.stepSize = stepSizeSpinBox->value();
 	dicConfig.subSize = subSizeSpinBox->value();
@@ -798,13 +805,13 @@ void StudyCorr::DicComputePOIQueue2D(DICconfig& dicConfig)
 		feature_affine->setImages(ref_img, tar_img);
 		feature_affine->setKeypointPair(sift->ref_matched_kp, sift->tar_matched_kp);
 		feature_affine->prepare();
-		feature_affine->compute(poi_queue_L[i]);
+		feature_affine->compute(poi_queue_opencorr[i]);
 
 		opencorr::ICGN2D2 icgn2(dicConfig.subSize/2, dicConfig.subSize/2, 
 			dicConfig.max_deformation_norm, dicConfig.max_iteration, dicConfig.cpu_thread_number);
 		icgn2.setImages(ref_img, tar_img);
 		icgn2.prepare();
-		icgn2.compute(poi_queue_L[i]);
+		icgn2.compute(poi_queue_opencorr[i]);
 	}
 	double timer_toc = omp_get_wtime();
 	double consumed_time = timer_toc - timer_tic;
@@ -812,155 +819,141 @@ void StudyCorr::DicComputePOIQueue2D(DICconfig& dicConfig)
 	qDebug() << "计算完成。";
 }
 
-// void StudyCorr::DicComputePOIQueue2DS(DICconfig &dicConfig)
+// void StudyCorr::DicComputePOIQueue2DGPU(DICconfig &dicConfig)
 // {
-// 	dicConfig.stepSize = stepSizeSpinBox->value();
-// 	dicConfig.subSize = subSizeSpinBox->value();
+//     dicConfig.stepSize = stepSizeSpinBox->value();
+//     dicConfig.subSize = subSizeSpinBox->value();
+//     const int N = dicConfig.LeftComputeFilePath.size();
+//     StudyCorr_GPU::Image2D ref_img(dicConfig.LeftComputeFilePath[0].toStdString());
+//     int width = ref_img.width;
+//     int height = ref_img.height;
+//     qDebug() << "参考图像尺寸：" << width << "x" << height;
 
-// 	// 1. 加载参考帧左右图像
-// 	opencorr::Image2D ref_img(dicConfig.LeftComputeFilePath[0].toStdString());
-// 	opencorr::Image2D ref_img_r(dicConfig.RightComputeFilePath[0].toStdString());
+//     // 1. 预分配流
+//     std::vector<cudaStream_t> streams(N);
+//     for (int i = 0; i < N; ++i) {
+//         cudaError_t err = cudaStreamCreate(&streams[i]);
+//         if (err != cudaSuccess) {
+//             qDebug() << "cudaStreamCreate failed:" << cudaGetErrorString(err);
+//             // 销毁已创建的流
+//             for (int j = 0; j < i; ++j) cudaStreamDestroy(streams[j]);
+//             return;
+//         }
+//     }
 
-// 	// 2. 设置相机参数（应从标定结果获取，这里为示例硬编码）
-// 	opencorr::CameraIntrinsics view1_cam_intrinsics, view2_cam_intrinsics;
-// 	opencorr::CameraExtrinsics view1_cam_extrinsics, view2_cam_extrinsics;
-// 	view1_cam_intrinsics.fx = 6673.315918f;
-// 	view1_cam_intrinsics.fy = 6669.302734f;
-// 	view1_cam_intrinsics.fs = 0.f;
-// 	view1_cam_intrinsics.cx = 872.15778f;
-// 	view1_cam_intrinsics.cy = 579.95532f;
-// 	view1_cam_intrinsics.k1 = 0.032258954f;
-// 	view1_cam_intrinsics.k2 = -1.01141417f;
-// 	view1_cam_intrinsics.k3 = 29.78838921f;
-// 	view1_cam_intrinsics.k4 = 0;
-// 	view1_cam_intrinsics.k5 = 0;
-// 	view1_cam_intrinsics.k6 = 0;
-// 	view1_cam_intrinsics.p1 = 0;
-// 	view1_cam_intrinsics.p2 = 0;
-// 	view1_cam_extrinsics.tx = 0;
-// 	view1_cam_extrinsics.ty = 0;
-// 	view1_cam_extrinsics.tz = 0;
-// 	view1_cam_extrinsics.rx = 0;
-// 	view1_cam_extrinsics.ry = 0;
-// 	view1_cam_extrinsics.rz = 0;
+//     TICK(StudgCorr_GPU);
 
-// 	view2_cam_intrinsics.fx = 6607.618164f;
-// 	view2_cam_intrinsics.fy = 6602.857422f;
-// 	view2_cam_intrinsics.fs = 0.f;
-// 	view2_cam_intrinsics.cx = 917.9733887f;
-// 	view2_cam_intrinsics.cy = 531.6352539f;
-// 	view2_cam_intrinsics.k1 = 0.064598486f;
-// 	view2_cam_intrinsics.k2 = -4.531373978f;
-// 	view2_cam_intrinsics.k3 = 29.78838921f;
-// 	view2_cam_intrinsics.k4 = 0;
-// 	view2_cam_intrinsics.k5 = 0;
-// 	view2_cam_intrinsics.k6 = 0;
-// 	view2_cam_intrinsics.p1 = 0;
-// 	view2_cam_intrinsics.p2 = 0;
-// 	view2_cam_extrinsics.tx = 122.24886f;
-// 	view2_cam_extrinsics.ty = 1.8488892f;
-// 	view2_cam_extrinsics.tz = 17.624638f;
-// 	view2_cam_extrinsics.rx = 0.00307711f;
-// 	view2_cam_extrinsics.ry = -0.33278773f;
-// 	view2_cam_extrinsics.rz = 0.00524556f;
-
-// 	opencorr::Calibration cam_view1_calib(view1_cam_intrinsics, view1_cam_extrinsics);
-// 	opencorr::Calibration cam_view2_calib(view2_cam_intrinsics, view2_cam_extrinsics);
-// 	cam_view1_calib.prepare(ref_img.height, ref_img.width);
-// 	cam_view2_calib.prepare(ref_img_r.height, ref_img_r.width);
-
-// 	int cpu_thread_number = dicConfig.cpu_thread_number > 0 ? dicConfig.cpu_thread_number : omp_get_num_procs() - 1;
-// 	omp_set_num_threads(cpu_thread_number);
-
-// 	opencorr::Stereovision stereo_reconstruction(&cam_view1_calib, &cam_view2_calib, cpu_thread_number);
-
-// 	double timer_tic = omp_get_wtime();
-
-// 	// 遍历所有帧，进行3D-DIC
 // 	#pragma omp parallel for
-// 	for (int i = 0; i < dicConfig.LeftComputeFilePath.size(); ++i)
-// 	{
-// 		opencorr::Image2D tar_img(dicConfig.LeftComputeFilePath[i].toStdString());
-// 		opencorr::Image2D tar_img_r(dicConfig.RightComputeFilePath[i].toStdString());
+//     for (int i = 0; i < N; ++i)
+//     {
+//         TICK(StudgCorr_GPU_Frame);
+//         StudyCorr_GPU::Image2D tar_img(dicConfig.LeftComputeFilePath[i].toStdString());
+//         if (poi_queue_studycorr.size() <= i || poi_queue_studycorr[i].empty()) {
+//             qDebug() << "POI queue empty at frame" << i;
+//             continue;
+//         }
+//         cudaStream_t stream = streams[i];
 
-// 		// 1) 左图时序匹配（SIFT+仿射+ICGN1）
-// 		opencorr::SIFT2D sift_l;
-// 		sift_l.setImages(ref_img, tar_img);
-// 		sift_l.prepare();
-// 		sift_l.compute();
+//         // SIFT
+//         StudyCorr_GPU::SiftFeatureBatchGpu sift_batch;
+//         sift_batch.prepare_cuda(ref_img.data_ptrs, tar_img.data_ptrs, width, height, stream);
+//         sift_batch.compute_match_batch_cuda(stream);
 
-// 		opencorr::FeatureAffine2D feature_affine_l(dicConfig.subSize/2, dicConfig.subSize/2, cpu_thread_number);
-// 		feature_affine_l.setImages(ref_img, tar_img);
-// 		feature_affine_l.setKeypointPair(sift_l.ref_matched_kp, sift_l.tar_matched_kp);
-// 		feature_affine_l.prepare();
-// 		feature_affine_l.compute(poi_queue_L[i]);
+//         const StudyCorr_GPU::SiftFeature2D* match_kp_ref = sift_batch.match_kp_ref.data();
+//         const StudyCorr_GPU::SiftFeature2D* match_kp_tar = sift_batch.match_kp_tar.data();
+//         int num_match = sift_batch.num_match;
 
-// 		opencorr::ICGN2D1 icgn1_l(dicConfig.subSize/2, dicConfig.subSize/2, 
-// 			dicConfig.max_deformation_norm, dicConfig.max_iteration, cpu_thread_number);
-// 		icgn1_l.setImages(ref_img, tar_img);
-// 		icgn1_l.prepare();
-// 		icgn1_l.compute(poi_queue_L[i]);
+//         // 仿射
+//         StudyCorr_GPU::SiftAffineBatchGpu affine_batch;
+//         affine_batch.set_poi_list(poi_queue_studycorr[i]);
+//         affine_batch.prepare_cuda(match_kp_ref, match_kp_tar, num_match, stream);
+//         affine_batch.compute_batch_cuda(poi_queue_studycorr[i].data(), int(poi_queue_studycorr[i].size()), stream);
 
-// 		// 2) 右图时序匹配（SIFT+仿射+ICGN1）
-// 		opencorr::SIFT2D sift_r;
-// 		sift_r.setImages(ref_img_r, tar_img_r);
-// 		sift_r.prepare();
-// 		sift_r.compute();
+//         // ICGN
+//         StudyCorr_GPU::ICGN2D1BatchGpu icgn_batch;
+//         StudyCorr_GPU::ICGNParam icgn_param;
+//         icgn_batch.prepare_cuda(ref_img.data_ptrs, tar_img.data_ptrs, height, width, icgn_param);
+//         icgn_batch.compute_batch_cuda(poi_queue_studycorr[i].data(), int(poi_queue_studycorr[i].size()), stream);
 
-// 		opencorr::FeatureAffine2D feature_affine_r(dicConfig.subSize/2, dicConfig.subSize/2, cpu_thread_number);
-// 		feature_affine_r.setImages(ref_img_r, tar_img_r);
-// 		feature_affine_r.setKeypointPair(sift_r.ref_matched_kp, sift_r.tar_matched_kp);
-// 		feature_affine_r.prepare();
-// 		feature_affine_r.compute(poi_queue_R[i]);
+//         // 不再同步，让多帧并发
+//         TOCK(StudgCorr_GPU_Frame);
+//     }
 
-// 		opencorr::ICGN2D1 icgn1_r(dicConfig.subSize/2, dicConfig.subSize/2, 
-// 			dicConfig.max_deformation_norm, dicConfig.max_iteration, cpu_thread_number);
-// 		icgn1_r.setImages(ref_img_r, tar_img_r);
-// 		icgn1_r.prepare();
-// 		icgn1_r.compute(poi_queue_R[i]);
+//     // 3. 等所有帧都算完
+//     for (int i = 0; i < N; ++i) {
+//         cudaStreamSynchronize(streams[i]);
+//         cudaStreamDestroy(streams[i]);
+//     }
 
-// 		// 3) 立体重建
-// 		std::vector<opencorr::Point2D> ref_view1_pt, ref_view2_pt, tar_view1_pt, tar_view2_pt;
-// 		std::vector<opencorr::Point3D> ref_pt_3d, tar_pt_3d;
-// 		ref_view1_pt.reserve(poi_queue_L[i].size());
-// 		ref_view2_pt.reserve(poi_queue_R[i].size());
-// 		tar_view1_pt.reserve(poi_queue_L[i].size());
-// 		tar_view2_pt.reserve(poi_queue_R[i].size());
-// 		ref_pt_3d.resize(poi_queue_L[i].size());
-// 		tar_pt_3d.resize(poi_queue_L[i].size());
-
-// 		for (size_t j = 0; j < poi_queue_L[i].size(); ++j) {
-// 			// 参考帧左右视点
-// 			ref_view1_pt.push_back(opencorr::Point2D(poi_queue_L[i][j].x, poi_queue_L[i][j].y));
-// 			ref_view2_pt.push_back(opencorr::Point2D(poi_queue_R[i][j].x, poi_queue_R[i][j].y));
-// 			// 目标帧左右视点
-// 			tar_view1_pt.push_back(opencorr::Point2D(
-// 				poi_queue_L[i][j].x + poi_queue_L[i][j].deformation.u,
-// 				poi_queue_L[i][j].y + poi_queue_L[i][j].deformation.v));
-// 			tar_view2_pt.push_back(opencorr::Point2D(
-// 				poi_queue_R[i][j].x + poi_queue_R[i][j].deformation.u,
-// 				poi_queue_R[i][j].y + poi_queue_R[i][j].deformation.v));
-// 		}
-
-// 		stereo_reconstruction.prepare();
-// 		stereo_reconstruction.reconstruct(ref_view1_pt, ref_view2_pt, ref_pt_3d);
-// 		stereo_reconstruction.reconstruct(tar_view1_pt, tar_view2_pt, tar_pt_3d);
-
-// 		// 保存3D结果到poi_queue_2DS
-// 		for (size_t j = 0; j < poi_queue_R[i].size(); ++j) {
-// 			poi_queue_R[i][j].ref_coor = ref_pt_3d[j];
-// 			poi_queue_R[i][j].tar_coor = tar_pt_3d[j];
-// 			poi_queue_R[i][j].deformation.u = tar_pt_3d[j].x - ref_pt_3d[j].x;
-// 			poi_queue_R[i][j].deformation.v = tar_pt_3d[j].y - ref_pt_3d[j].y;
-// 			poi_queue_R[i][j].deformation.w = tar_pt_3d[j].z - ref_pt_3d[j].z;
-// 		}
-// 	}
-
-// 	double timer_toc = omp_get_wtime();
-// 	double consumed_time = timer_toc - timer_tic;
-// 	qDebug() << "3D-DIC计算耗时：" << consumed_time << "秒";
-// 	qDebug() << "3D-DIC计算完成。";
+//     TOCK(StudgCorr_GPU);
+//     qDebug() << "计算完成。";
 // }
+
+void StudyCorr::DicComputePOIQueue2DGPU(DICconfig &dicConfig)
+{
+    dicConfig.stepSize = stepSizeSpinBox->value();
+    dicConfig.subSize = subSizeSpinBox->value();
+    const int N = dicConfig.LeftComputeFilePath.size();
+    StudyCorr_GPU::Image2D ref_img(dicConfig.LeftComputeFilePath[0].toStdString());
+    int width = ref_img.width;
+    int height = ref_img.height;
+    qDebug() << "参考图像尺寸：" << width << "x" << height;
+
+    cudaStream_t stream;
+    cudaError_t err = cudaStreamCreate(&stream);
+    if (err != cudaSuccess) {
+        qDebug() << "cudaStreamCreate failed:" << cudaGetErrorString(err);
+        return;
+    }
+
+    TICK(StudgCorr_GPU);
+    for (int i = 0; i < N; ++i)
+    {
+        TICK(StudgCorr_GPU_Frame);
+
+        StudyCorr_GPU::Image2D tar_img(dicConfig.LeftComputeFilePath[i].toStdString());
+        if (poi_queue_studycorr.size() <= i || poi_queue_studycorr[i].empty()) {
+            qDebug() << "POI queue empty at frame" << i;
+            continue;
+        }
+
+        // SIFT特征
+        StudyCorr_GPU::SiftFeatureBatchGpu sift_batch;
+        sift_batch.prepare_cuda(ref_img.data_ptrs, tar_img.data_ptrs, width, height, stream);
+        sift_batch.compute_match_batch_cuda(stream);
+        cudaStreamSynchronize(stream); // 必须同步，确保安全
+
+        const StudyCorr_GPU::SiftFeature2D* match_kp_ref = sift_batch.match_kp_ref.data();
+        const StudyCorr_GPU::SiftFeature2D* match_kp_tar = sift_batch.match_kp_tar.data();
+        int num_match = sift_batch.num_match;
+		qDebug() << "SIFT特征计算完成"<< "，匹配点数量：" << num_match;
+
+        // 仿射
+        StudyCorr_GPU::SiftAffineBatchGpu affine_batch;
+        affine_batch.set_poi_list(poi_queue_studycorr[i]);
+        affine_batch.prepare_cuda(match_kp_ref, match_kp_tar, num_match, stream);
+        affine_batch.compute_batch_cuda(poi_queue_studycorr[i].data(), int(poi_queue_studycorr[i].size()), stream);
+        cudaStreamSynchronize(stream);
+		qDebug() << "仿射变换计算完成" << "，POI数量：" << poi_queue_studycorr[i].size();
+
+        // ICGN
+        StudyCorr_GPU::ICGN2D2BatchGpu icgn_batch;
+        StudyCorr_GPU::ICGNParam icgn_param;
+        icgn_batch.prepare_cuda(ref_img.data_ptrs, tar_img.data_ptrs, height, width, icgn_param);
+        icgn_batch.compute_batch_cuda(poi_queue_studycorr[i].data(), int(poi_queue_studycorr[i].size()), stream);
+		qDebug() << "ICGN计算完成" << "，POI数量：" << poi_queue_studycorr[i].size();
+        cudaStreamSynchronize(stream);
+		err = cudaDeviceSynchronize();
+		if (err != cudaSuccess) {
+			printf("cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err));
+			return;
+		}
+        TOCK(StudgCorr_GPU_Frame);
+    }
+    cudaStreamDestroy(stream);
+    TOCK(StudgCorr_GPU);
+    qDebug() << "计算完成。";
+}
 
 
 void StudyCorr::downloadData()	
@@ -980,7 +973,7 @@ void StudyCorr::downloadData()
 		}
 
 		// 在这里添加下载数据的逻辑
-		opencorr::Image2D ref_img(dicConfig.LeftComputeFilePath[0].toStdString());
+		StudyCorr_GPU::Image2D ref_img(dicConfig.LeftComputeFilePath[0].toStdString());
 		std::string delimiter = ",";
 		int ref_height = ref_img.height;
 		int ref_width = ref_img.width;
@@ -995,12 +988,12 @@ void StudyCorr::downloadData()
 			QString savePath = QDir(folder).filePath(qfileName + ".csv");
 			std::string file_path = savePath.toStdString();
 
-			opencorr::IO2D in_out;
+			StudyCorr_GPU::IO2D in_out;
 			in_out.setDelimiter(delimiter);
 			in_out.setHeight(ref_height);
 			in_out.setWidth(ref_width);
 			in_out.setPath(file_path);
-			in_out.saveTable2D(poi_queue_L[i]);
+			in_out.saveTableCuda2D(poi_queue_studycorr[i]);
 		}
 		QMessageBox::information(this, "成功", "数据下载成功！");
 	}

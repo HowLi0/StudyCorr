@@ -91,14 +91,17 @@ std::vector<opencorr::POI2D> Drawable::getPOI2DQueue()
     return poi_queue_2D;
 }
 
-std::vector<opencorr::POI2DS> Drawable::getPOI2DSQueue()
+std::vector<StudyCorr_GPU::CudaPOI2D> Drawable::getCudaPOI2DQueue()
 {
-    poi_queue_2DS.clear();
-    poi_queue_2DS.resize(calculationPoints.size());
+    poi_queue_studycorr.clear();
+    poi_queue_studycorr.resize(calculationPoints.size());
     #pragma omp parallel for
     for (int i = 0; i < calculationPoints.size(); i++)
     {
-        poi_queue_2DS[i] = opencorr::POI2DS(static_cast<float>(calculationPoints[i].x()), static_cast<float>(calculationPoints[i].y()));
+        StudyCorr_GPU::CudaPOI2D poi;
+        poi.x = static_cast<float>(calculationPoints[i].x());
+        poi.y = static_cast<float>(calculationPoints[i].y());
+        poi_queue_studycorr[i] = poi;
     }
-    return poi_queue_2DS;
+    return poi_queue_studycorr;
 }

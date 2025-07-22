@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(StudyCorr VERSION 1.0.0 LANGUAGES CXX CUDA)
 
-# 设置支持的 CUDA 架构（以 75/86/89/90 为例，具体可查你的显卡）
-set(CMAKE_CUDA_ARCHITECTURES 75 86 89 90)
+set(CMAKE_CUDA_ARCHITECTURES 61 75 86 89)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTORCC ON)
@@ -40,7 +39,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/API/Eigen3/Eigen
     ${CMAKE_CURRENT_SOURCE_DIR}/API/nanoflann
     ${CMAKE_CURRENT_SOURCE_DIR}/API/cuSIFT
-
+    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_GPU
 )
 
 # Set library directories
@@ -62,10 +61,12 @@ file(GLOB CUSIFT_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/API/cuSIFT/*.cu
     ${CMAKE_CURRENT_SOURCE_DIR}/API/cuSIFT/*.cuh
 )
-file(GLOB STUDYCORR_CUDA_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_CUDA/*.cu
+
+file(GLOB STUDYCORR_GPU_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_GPU/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_GPU/*.cu
 )
-set(SOURCES ${STUDYCORR_SOURCES} ${OPENCORR_SOURCES} ${CUSIFT_SOURCES} ${STUDYCORR_CUDA_SOURCES})
+set(SOURCES ${STUDYCORR_SOURCES} ${OPENCORR_SOURCES} ${CUSIFT_SOURCES}  ${STUDYCORR_GPU_SOURCES})
 
 # Header files that need MOC processing
 set(MOC_HEADERS
@@ -76,15 +77,17 @@ set(MOC_HEADERS
 )
 
 # Other header files
-file(GLOB STUDYCORR_CUDA_HEADERS
-    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_CUDA/*.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_CUDA/*.cuh
+
+file(GLOB STUDYCORR_GPU_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_GPU/*.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/StudyCorr_GPU/*.cuh
 )
+
 set(HEADERS
     StudyCorr/Calibration.h
     StudyCorr/customPixmapItem.h
     StudyCorr/Shape.h
-    ${STUDYCORR_CUDA_HEADERS}
+    ${STUDYCORR_GPU_HEADERS}
 )
 
 # UI files
@@ -112,6 +115,9 @@ add_executable(StudyCorr
 )
 
 # Link libraries
+find_package(CUDAToolkit REQUIRED)
+target_link_libraries(StudyCorr PRIVATE CUDA::cusolver)
+
 # 统一为 keyword 语法
  target_link_libraries(StudyCorr PRIVATE
     Qt6::Core

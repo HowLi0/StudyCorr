@@ -2,7 +2,7 @@
 
 # Try to find Qt6 in common installation paths
 set(QT6_SEARCH_PATHS
-    "D:/SoftWare/Qt/6.7.2/msvc2019_64"
+    "D:/QT/QTcreator/6.7.0//msvc2019_64"   #"D:/SoftWare/Qt/6.7.2/msvc2019_64"
     $ENV{Qt6_DIR}
     $ENV{QT_DIR}
     $ENV{QT6_DIR}

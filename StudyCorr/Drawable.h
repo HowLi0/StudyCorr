@@ -3,8 +3,9 @@
 #include <QGraphicsPixmapItem>
 #include <opencv2/opencv.hpp>
 #include"oc_poi.h"
+#include"sc_poi.h"
 #include <vector>
-
+    
 class  ShapeDrawer;
 
 class Drawable : public QObject {
@@ -20,11 +21,11 @@ public:
     void updateCalculationPoints(int stepSize, int subSize);
     QVector<QPointF> getCalculationPoints() const; // 添加方法获取计算点
     std::vector<opencorr::POI2D> getPOI2DQueue(); 
-    std::vector<opencorr::POI2DS> getPOI2DSQueue();// 获取 POI 队列
+    std::vector<StudyCorr_GPU::CudaPOI2D> getCudaPOI2DQueue();
     QVector<cv::Mat> ROI; // 存储所有 ROI 的图像数据
     QVector<QPointF> calculationPoints; // 存储所有 ROI 中的计算点
     std::vector<opencorr::POI2D> poi_queue_2D; 
-    std::vector<opencorr::POI2DS> poi_queue_2DS; // 存储所有的 POI
+    std::vector<StudyCorr_GPU::CudaPOI2D> poi_queue_studycorr; // 存储所有的 POI
     int m_stepSize = 5, m_subSize = 30;
     ShapeDrawer* shapeDrawer = nullptr;
     void setPixmapItem(QGraphicsPixmapItem* item) { pixmapItem = item; }

@@ -9,7 +9,8 @@
 #include<QtCore>
 #include <QtWidgets>
 #include <omp.h>
-#include"opencorr.h"
+#include "opencorr.h"
+#include "StudyCorr_GPU.h"
 
 
 class Calibrationfactory
@@ -121,8 +122,8 @@ private:
     QStringList RightComputeFilePath;
     QMap<int, QPair<QStringList, QStringList>> computeImageFiles;
     ChessCalibration* chessCalibration = nullptr;
-    std::vector<std::vector<opencorr::POI2D>> poi_queue_L; // 存储所有的 POI
-    std::vector<std::vector<opencorr::POI2D>> poi_queue_R; // 存储所有的 POI
+    std::vector<std::vector<opencorr::POI2D>> poi_queue_opencorr; // 存储所有的 POI
+    std::vector<std::vector<StudyCorr_GPU::CudaPOI2D>> poi_queue_studycorr; // 存储所有的 POI
     //****************************************************工作区控件****************************************************//
     QTabWidget* TabWidget = nullptr;
     QTreeWidget* TreeWidget1 = nullptr;
@@ -194,7 +195,8 @@ private:
 
     //****************************************************ROI/POI****************************************************//
     void updateROICalculationPoints();
-    void DicComputePOIQueue2D(DICconfig& dicConfig);
+    void DicComputePOIQueue2DCPU(DICconfig& dicConfig);
+    void DicComputePOIQueue2DGPU(DICconfig& dicConfig);
     void DicComputePOIQueue2DS(DICconfig& dicConfig);
     //void computePOIQueue2DS();
 

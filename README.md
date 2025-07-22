@@ -1,5 +1,8 @@
 # StudyCorr
 
+cd E:\code_C++\StudyCorr_GPU\build\bin\Release
+compute-sanitizer ./StudyCorr.exe
+
 基于 Qt6 的 C++ 图像处理项目，支持 VS Code 跨平台开发，集成 OpenCV、FFTW3、Eigen3、nanoflann，opencorr等常用库。
 
 ## 环境要求
