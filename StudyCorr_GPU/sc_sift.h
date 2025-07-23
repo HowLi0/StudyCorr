@@ -28,7 +28,7 @@ private:
     int width_ = 0, height_ = 0;
     float* d_ref_img_ = nullptr;
     float* d_tar_img_ = nullptr;
-    int max_feat_ = 4096;
+    int max_feat_ = 25000;
 };
 
 } // namespace StudyCorr

@@ -6,7 +6,7 @@ namespace StudyCorr_GPU {
 
     struct ICGNParam {
         int subsetRadius = 21;
-        double convergenceThreshold = 0.00001f;
+        double convergenceThreshold = 0.001f;
         int maxIterations = 10;
     };
 
@@ -16,7 +16,7 @@ namespace StudyCorr_GPU {
         ICGN2D1BatchGpu();
         ~ICGN2D1BatchGpu();
 
-        void prepare_cuda(const float* ref_image, const float* tar_image, int height, int width, const ICGNParam& param);
+        void prepare_cuda(const float* ref_image, const float* tar_image, int height, int width, const ICGNParam& param = ICGNParam());
         void compute_batch_cuda(CudaPOI2D* pois, int N, cudaStream_t stream = 0);
         void release_cuda();
 

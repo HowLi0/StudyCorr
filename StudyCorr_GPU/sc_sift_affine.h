@@ -6,7 +6,7 @@
 
 namespace StudyCorr_GPU {
 
-// SIFT特征结构（可扩展与cusift一致）
+// SIFT特征结构（与cusift一致，可扩展）
 struct SiftFeature2D {
     float x, y;
     float scale, orientation, score, ambiguity;
@@ -41,8 +41,10 @@ public:
 
     // 设置待处理POI列表
     void set_poi_list(const std::vector<CudaPOI2D>& poi_list) { poi_list_ = poi_list; }
+    const std::vector<CudaPOI2D>& get_poi_list() const { return poi_list_; }
 
     // SIFT特征输入，预处理KDTree/knn/暴力补齐选邻居，并分配/传输CUDA内存
+    // 逻辑完全对齐OpenCorr: 先radiusSearch，再knn补齐，最后暴力补齐
     void prepare_cuda(const SiftFeature2D* ref_kp, const SiftFeature2D* tar_kp, int num_kp, cudaStream_t stream = 0);
 
     // CUDA并行仿射初始化，自动RANSAC，结果写入POI deformation，与sc_icgn一致
@@ -68,4 +70,4 @@ private:
     float* d_neighbor_dist_ = nullptr;
 };
 
-} // namespace StudyCorr
+} // namespace StudyCorr_GPU

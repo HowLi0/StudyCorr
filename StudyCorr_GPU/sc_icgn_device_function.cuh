@@ -3,415 +3,626 @@
 #include <math_constants.h>
 
 
+
+struct ZNCCAndErrorResult {
+    float zncc;
+    float errorVector[12];
+    int count;
+};
+
+//******************************************************icgn2D******************************************************/
+
 // 图像双线性插值（2D/2D二阶公用）
-__inline__ __device__ float bilinear_interpolate(const float* image, int height, int width, float y, float x) {
-    int x0 = floorf(x), x1 = x0 + 1;
-    int y0 = floorf(y), y1 = y0 + 1;
-    float dx = x - x0, dy = y - y0;
-    x0 = max(0, min(x0, width - 1));
-    x1 = max(0, min(x1, width - 1));
-    y0 = max(0, min(y0, height - 1));
-    y1 = max(0, min(y1, height - 1));
-    float I00 = image[y0 * width + x0];
-    float I01 = image[y0 * width + x1];
-    float I10 = image[y1 * width + x0];
-    float I11 = image[y1 * width + x1];
-    return (1 - dx) * (1 - dy) * I00
-         + dx * (1 - dy) * I01
-         + (1 - dx) * dy * I10
-         + dx * dy * I11;
+__device__ __forceinline__ float BilinearInterpolation(float x, float y, const float* image, int width, int height) {
+    // 边界检查，与CPU版本完全一致
+    if (x < 0.0f || x >= width - 1.0f || y < 0.0f || y >= height - 1.0f) {
+        return 0.0f;
+    }
+    
+    // 获取整数和小数部分，使用与CPU相同的方法                          
+    int x1 = static_cast<int>(x);
+    int y1 = static_cast<int>(y);
+    int x2 = x1 + 1;
+    int y2 = y1 + 1;
+
+    float fx = x - static_cast<float>(x1);// x 方向的权重
+    float fy = y - static_cast<float>(y1);// y 方向的权重
+
+    // 双线性插值，与CPU版本完全一致的公式
+    float val = (1.0f - fx) * (1.0f - fy) * image[y1 * width + x1] +
+                fx * (1.0f - fy) * image[y1 * width + x2] +
+                (1.0f - fx) * fy * image[y2 * width + x1] +
+                fx * fy * image[y2 * width + x2];
+    
+    return val;
 }
 
-// Sobel梯度图（2D/2D二阶公用）
-__inline__ __device__ void compute_gradients(const float* image, int height, int width, float* grad_x, float* grad_y) {
-    for (int y = 1; y < height - 1; ++y) {
-        for (int x = 1; x < width - 1; ++x) {
-            int idx = y * width + x;
-            grad_x[idx] =
-                -image[(y-1)*width + (x-1)] - 2*image[y*width + (x-1)] - image[(y+1)*width + (x-1)]
-                +image[(y-1)*width + (x+1)] + 2*image[y*width + (x+1)] + image[(y+1)*width + (x+1)];
-            grad_x[idx] /= 8.0f;
-            grad_y[idx] =
-                -image[(y-1)*width + (x-1)] - 2*image[(y-1)*width + x] - image[(y-1)*width + (x+1)]
-                +image[(y+1)*width + (x-1)] + 2*image[(y+1)*width + x] + image[(y+1)*width + (x+1)];
-            grad_y[idx] /= 8.0f;
-        }
+//Sobel梯度计算
+__device__ __forceinline__ void computeSobelGradients(const float* image, int x, int y, int width, int height,
+                                                      float& gradX, float& gradY) {
+    gradX = 0.0f;
+    gradY = 0.0f;
+
+    // 边界检查
+    if (x >= 1 && x < width - 1 && y >= 1 && y < height - 1) {
+        // Sobel X核: [-1 0 1; -2 0 2; -1 0 1] / 8
+        gradX = (-image[(y-1)*width + (x-1)] + image[(y-1)*width + (x+1)]
+                -2.0f*image[y*width + (x-1)] + 2.0f*image[y*width + (x+1)]
+                -image[(y+1)*width + (x-1)] + image[(y+1)*width + (x+1)]) / 8.0f;
+
+        // Sobel Y核: [-1 -2 -1; 0 0 0; 1 2 1] / 8
+        gradY = (-image[(y-1)*width + (x-1)] - 2.0f*image[(y-1)*width + x] - image[(y-1)*width + (x+1)]
+                +image[(y+1)*width + (x-1)] + 2.0f*image[(y+1)*width + x] + image[(y+1)*width + (x+1)]) / 8.0f;
     }
 }
 
-// Sobel算子计算梯度
-__inline__ __device__ float gradient_x(const float* image, int height, int width, float y, float x) {
-    int ix = int(roundf(x));
-    int iy = int(roundf(y));
-    ix = max(1, min(ix, width - 2));
-    iy = max(1, min(iy, height - 2));
-    float gx =
-        -image[(iy-1)*width + (ix-1)] - 2*image[iy*width + (ix-1)] - image[(iy+1)*width + (ix-1)]
-        +image[(iy-1)*width + (ix+1)] + 2*image[iy*width + (ix+1)] + image[(iy+1)*width + (ix+1)];
-    gx /= 8.0f;
-    return gx;
+__device__ __forceinline__ void WarpPoint(float x, float y, const float* warpParams, 
+                                                   float& warpedX, float& warpedY, int numParams) {
+    // 提取参数
+    float u = warpParams[0];
+    float v = warpParams[1];
+
+    // 基础平移
+    warpedX = x + u;
+    warpedY = y + v;
+    
+    // 一阶形变参数（至少6个参数）
+    if (numParams >= 6) {
+        float dudx = warpParams[2];
+        float dudy = warpParams[3];
+        float dvdx = warpParams[4];
+        float dvdy = warpParams[5];
+
+        warpedX += dudx * x + dudy * y;
+        warpedY += dvdx * x + dvdy * y;
+    }
+    
+    // 二阶形变参数（12个参数）
+    if (numParams >= 12) {
+        float d2udx2 = warpParams[6];
+        float d2udxdy = warpParams[7];
+        float d2udy2 = warpParams[8];
+        float d2vdx2 = warpParams[9];
+        float d2vdxdy = warpParams[10];
+        float d2vdy2 = warpParams[11];
+        
+        warpedX += 0.5 * d2udx2 * x * x + d2udxdy * x * y + 0.5 * d2udy2 * y * y;
+        warpedY += 0.5 * d2vdx2 * x * x + d2vdxdy * x * y + 0.5 * d2vdy2 * y * y;
+    }
 }
 
-__inline__ __device__ float gradient_y(const float* image, int height, int width, float y, float x) {
-    int ix = int(roundf(x));
-    int iy = int(roundf(y));
-    ix = max(1, min(ix, width - 2));
-    iy = max(1, min(iy, height - 2));
-    float gy =
-        -image[(iy-1)*width + (ix-1)] - 2*image[(iy-1)*width + ix] - image[(iy-1)*width + (ix+1)]
-        +image[(iy+1)*width + (ix-1)] + 2*image[(iy+1)*width + ix] + image[(iy+1)*width + (ix+1)];
-    gy /= 8.0f;
-    return gy;
-}
 
-// device端6x6 Hessian逆矩阵实现
-__inline__ __device__ bool qr_inverse_6x6(const double* A, double* invA) {
-    const int N = 6;
-    double Q[N][N] = {0};
-    double R[N][N] = {0};
-    for (int k = 0; k < N; ++k) {
-        for (int i = 0; i < N; ++i)
-            Q[i][k] = A[i*N + k];
-        for (int j = 0; j < k; ++j) {
-            double dot = 0.0;
-            for (int i = 0; i < N; ++i)
-                dot += Q[i][j] * Q[i][k];
-            for (int i = 0; i < N; ++i)
-                Q[i][k] -= dot * Q[i][j];
+// 高精度QR分解求解线性方程组 - 更稳定的数值方法
+__device__ bool solveLinearSystemQR(const float* A, const float* b, float* x, int n) {
+    // 复制矩阵到局部内存
+    float Q[144]; // 最大12x12矩阵 - 正交矩阵
+    float R[144]; // 最大12x12矩阵 - 上三角矩阵
+    float bb[12]; // 最大12维向量
+
+    // 初始化
+    for (int i = 0; i < n * n; i++) {
+        Q[i] = A[i]; // 初始将A复制到Q
+        R[i] = 0.0f; // R矩阵初始化为0
+    }
+    for (int i = 0; i < n; i++) {
+        bb[i] = b[i];
+        x[i] = 0.0f;
+    }
+    
+    // Modified Gram-Schmidt QR分解
+    for (int j = 0; j < n; j++) {
+        // 计算列向量的范数
+        float norm = 0.0f;
+        for (int i = 0; i < n; i++) {
+            norm += Q[i * n + j] * Q[i * n + j];
         }
-        double norm = 0.0;
-        for (int i = 0; i < N; ++i)
-            norm += Q[i][k] * Q[i][k];
         norm = sqrt(norm);
-        if (norm < 1e-12) return false;
-        for (int i = 0; i < N; ++i)
-            Q[i][k] /= norm;
-    }
-    for (int i = 0; i < N; ++i)
-        for (int j = 0; j < N; ++j) {
-            double sum = 0.0;
-            for (int k = 0; k < N; ++k)
-                sum += Q[k][i] * A[k*N + j];
-            R[i][j] = sum;
+        
+        // 检查数值稳定性
+        if (norm < 1e-14) {
+            return false; // 矩阵奇异
         }
-    double invR[N][N] = {0};
-    for (int i = N - 1; i >= 0; --i) {
-        if (fabs(R[i][i]) < 1e-12) return false;
-        invR[i][i] = 1.0 / R[i][i];
-        for (int j = i + 1; j < N; ++j) {
-            double sum = 0.0;
-            for (int k = i + 1; k <= j; ++k)
-                sum += R[i][k] * invR[k][j];
-            invR[i][j] = -sum / R[i][i];
+        
+        R[j * n + j] = norm;
+        
+        // 归一化列向量
+        for (int i = 0; i < n; i++) {
+            Q[i * n + j] /= norm;
         }
-    }
-    for (int i = 0; i < N; ++i)
-        for (int j = 0; j < N; ++j) {
-            double sum = 0.0;
-            for (int k = 0; k < N; ++k)
-                sum += invR[i][k] * Q[j][k];
-            invA[i*N + j] = sum;
-        }
-    return true;
-}
-
-// QR分解逆，病态矩阵处理
-__inline__ __device__ bool qr_inverse_12x12(const double* A, double* invA) {
-    const int N = 12;
-    double Q[N][N] = {0}; double R[N][N] = {0};
-    for (int k = 0; k < N; ++k) {
-        for (int i = 0; i < N; ++i) Q[i][k] = A[i*N + k];
-        for (int j = 0; j < k; ++j) {
-            double dot = 0.0;
-            for (int i = 0; i < N; ++i) dot += Q[i][j] * Q[i][k];
-            for (int i = 0; i < N; ++i) Q[i][k] -= dot * Q[i][j];
-        }
-        double norm = 0.0;
-        for (int i = 0; i < N; ++i) norm += Q[i][k] * Q[i][k];
-        norm = sqrt(norm);
-        if (norm < 1e-12) return false;
-        for (int i = 0; i < N; ++i) Q[i][k] /= norm;
-    }
-    for (int i = 0; i < N; ++i)
-        for (int j = 0; j < N; ++j) {
-            double sum = 0.0;
-            for (int k = 0; k < N; ++k)
-                sum += Q[k][i] * A[k*N + j];
-            R[i][j] = sum;
-        }
-    double invR[N][N] = {0};
-    for (int i = N - 1; i >= 0; --i) {
-        if (fabs(R[i][i]) < 1e-12) return false;
-        invR[i][i] = 1.0 / R[i][i];
-        for (int j = i + 1; j < N; ++j) {
-            double sum = 0.0;
-            for (int k = i + 1; k <= j; ++k)
-                sum += R[i][k] * invR[k][j];
-            invR[i][j] = -sum / R[i][i];
-        }
-    }
-    for (int i = 0; i < N; ++i)
-        for (int j = 0; j < N; ++j) {
-            double sum = 0.0;
-            for (int k = 0; k < N; ++k)
-                sum += invR[i][k] * Q[j][k];
-            invA[i*N + j] = sum;
-        }
-    return true;
-}
-
-// ZNSSD相关系数
-__inline__ __device__ float compute_znssd(const float* ref_img, const float* tar_img, int subset_size,
-                               float mean_ref, float std_ref, float mean_tar, float std_tar) {
-    float znssd = 0.f;
-    for (int i = 0; i < subset_size; ++i) {
-        float nr = (ref_img[i] - mean_ref) / (std_ref + 1e-12f);
-        float nt = (tar_img[i] - mean_tar) / (std_tar + 1e-12f);
-        znssd += (nr - nt) * (nr - nt);
-    }
-    znssd /= subset_size;
-    float zncc = 0.5f * (2.f - znssd);
-    return zncc;
-}
-
-/****************************************** 2D一阶形函数 device functions + Hessian逆/插值/梯度 ******************************************/
-
-struct ShapeParam2D1 {
-    double u, ux, uy, v, vx, vy;
-};
-
-__device__ void set_deformation2d1(const double* p, ShapeParam2D1& param) {
-    param.u  = p[0];
-    param.ux = p[1];
-    param.uy = p[2];
-    param.v  = p[3];
-    param.vx = p[4];
-    param.vy = p[5];
-}
-
-__device__ void warp2d1(const ShapeParam2D1& param, double x_local, double y_local, double& u_warp, double& v_warp) {
-    u_warp = param.u + param.ux * x_local + param.uy * y_local;
-    v_warp = param.v + param.vx * x_local + param.vy * y_local;
-}
-
-__device__ void shape_gradient2d1(double x_local, double y_local, double* grad_u, double* grad_v) {
-    grad_u[0] = 1.0;    grad_u[1] = x_local; grad_u[2] = y_local;
-    grad_u[3] = 0.0;    grad_u[4] = 0.0;     grad_u[5] = 0.0;
-    grad_v[0] = 0.0;    grad_v[1] = 0.0;     grad_v[2] = 0.0;
-    grad_v[3] = 1.0;    grad_v[4] = x_local; grad_v[5] = y_local;
-}
-
-__device__ void compose2d1(const ShapeParam2D1& p_old, const ShapeParam2D1& delta_p, ShapeParam2D1& p_new) {
-    p_new.u  = p_old.u  + delta_p.u;
-    p_new.ux = p_old.ux + delta_p.ux;
-    p_new.uy = p_old.uy + delta_p.uy;
-    p_new.v  = p_old.v  + delta_p.v;
-    p_new.vx = p_old.vx + delta_p.vx;
-    p_new.vy = p_old.vy + delta_p.vy;
-}
-
-__device__ double delta_norm2d1(const ShapeParam2D1& delta_p, int subset_rx, int subset_ry) {
-    double norm = 0.0;
-    norm += delta_p.u  * delta_p.u;
-    norm += delta_p.ux * delta_p.ux * subset_rx * subset_rx;
-    norm += delta_p.uy * delta_p.uy * subset_ry * subset_ry;
-    norm += delta_p.v  * delta_p.v;
-    norm += delta_p.vx * delta_p.vx * subset_rx * subset_rx;
-    norm += delta_p.vy * delta_p.vy * subset_ry * subset_ry;
-    return sqrt(norm);
-}
-
-
-/****************************************** 2D二阶形函数 device functions + Hessian逆 ******************************************/
-
-struct ShapeParam2D2 {
-    double u, ux, uy, uxx, uxy, uyy;
-    double v, vx, vy, vxx, vxy, vyy;
-};
-
-__device__ void set_deformation2d2(const double* p, ShapeParam2D2& param) {
-    param.u   = p[0];
-    param.ux  = p[1];
-    param.uy  = p[2];
-    param.uxx = p[3];
-    param.uxy = p[4];
-    param.uyy = p[5];
-    param.v   = p[6];
-    param.vx  = p[7];
-    param.vy  = p[8];
-    param.vxx = p[9];
-    param.vxy = p[10];
-    param.vyy = p[11];
-}
-
-__device__ void warp2d2(const ShapeParam2D2& param, double x, double y, double& u_warp, double& v_warp) {
-    u_warp = param.u + param.ux * x + param.uy * y
-           + param.uxx * x * x + param.uxy * x * y + param.uyy * y * y;
-    v_warp = param.v + param.vx * x + param.vy * y
-           + param.vxx * x * x + param.vxy * x * y + param.vyy * y * y;
-}
-
-__device__ void shape_gradient2d2(double x, double y, double* grad_u, double* grad_v) {
-    grad_u[0] = 1.0;
-    grad_u[1] = x;
-    grad_u[2] = y;
-    grad_u[3] = x * x;
-    grad_u[4] = x * y;
-    grad_u[5] = y * y;
-    grad_u[6] = 0.0; grad_u[7] = 0.0; grad_u[8] = 0.0; grad_u[9] = 0.0; grad_u[10] = 0.0; grad_u[11] = 0.0;
-    grad_v[0] = 0.0; grad_v[1] = 0.0; grad_v[2] = 0.0; grad_v[3] = 0.0; grad_v[4] = 0.0; grad_v[5] = 0.0;
-    grad_v[6] = 1.0;
-    grad_v[7] = x;
-    grad_v[8] = y;
-    grad_v[9] = x * x;
-    grad_v[10] = x * y;
-    grad_v[11] = y * y;
-}
-
-__device__ void compose2d2(const ShapeParam2D2& p_old, const ShapeParam2D2& delta_p, ShapeParam2D2& p_new) {
-    p_new.u   = p_old.u   + delta_p.u;
-    p_new.ux  = p_old.ux  + delta_p.ux;
-    p_new.uy  = p_old.uy  + delta_p.uy;
-    p_new.uxx = p_old.uxx + delta_p.uxx;
-    p_new.uxy = p_old.uxy + delta_p.uxy;
-    p_new.uyy = p_old.uyy + delta_p.uyy;
-    p_new.v   = p_old.v   + delta_p.v;
-    p_new.vx  = p_old.vx  + delta_p.vx;
-    p_new.vy  = p_old.vy  + delta_p.vy;
-    p_new.vxx = p_old.vxx + delta_p.vxx;
-    p_new.vxy = p_old.vxy + delta_p.vxy;
-    p_new.vyy = p_old.vyy + delta_p.vyy;
-}
-
-__device__ double delta_norm2d2(const ShapeParam2D2& delta_p, int subset_rx, int subset_ry) {
-    double norm = 0.0;
-    norm += delta_p.u   * delta_p.u;
-    norm += delta_p.ux  * delta_p.ux  * subset_rx * subset_rx;
-    norm += delta_p.uy  * delta_p.uy  * subset_ry * subset_ry;
-    norm += delta_p.uxx * delta_p.uxx * subset_rx * subset_rx * subset_rx * subset_rx;
-    norm += delta_p.uxy * delta_p.uxy * subset_rx * subset_rx * subset_ry * subset_ry;
-    norm += delta_p.uyy * delta_p.uyy * subset_ry * subset_ry * subset_ry * subset_ry;
-    norm += delta_p.v   * delta_p.v;
-    norm += delta_p.vx  * delta_p.vx  * subset_rx * subset_rx;
-    norm += delta_p.vy  * delta_p.vy  * subset_ry * subset_ry;
-    norm += delta_p.vxx * delta_p.vxx * subset_rx * subset_rx * subset_rx * subset_rx;
-    norm += delta_p.vxy * delta_p.vxy * subset_rx * subset_rx * subset_ry * subset_ry;
-    norm += delta_p.vyy * delta_p.vyy * subset_ry * subset_ry * subset_ry * subset_ry;
-    return sqrt(norm);
-}
-
-/****************************************** 3D一阶形函数 device functions + Hessian逆/插值/梯度 ******************************************/
-
-struct ShapeParam3D1 {
-    double u, ux, uy, uz;
-    double v, vx, vy, vz;
-    double w, wx, wy, wz;
-};
-
-__device__ void set_deformation3d1(const double* p, ShapeParam3D1& param) {
-    param.u  = p[0];
-    param.ux = p[1];
-    param.uy = p[2];
-    param.uz = p[3];
-    param.v  = p[4];
-    param.vx = p[5];
-    param.vy = p[6];
-    param.vz = p[7];
-    param.w  = p[8];
-    param.wx = p[9];
-    param.wy = p[10];
-    param.wz = p[11];
-}
-
-__device__ void warp3d1(const ShapeParam3D1& param, double x, double y, double z,
-                        double& u_warp, double& v_warp, double& w_warp) {
-    u_warp = param.u  + param.ux * x + param.uy * y + param.uz * z;
-    v_warp = param.v  + param.vx * x + param.vy * y + param.vz * z;
-    w_warp = param.w  + param.wx * x + param.wy * y + param.wz * z;
-}
-
-__device__ void shape_gradient3d1(double x, double y, double z, double* grad_u, double* grad_v, double* grad_w) {
-    grad_u[0] = 1.0;  grad_u[1] = x;  grad_u[2] = y;  grad_u[3] = z;
-    grad_u[4] = grad_u[5] = grad_u[6] = grad_u[7] = grad_u[8] = grad_u[9] = grad_u[10] = grad_u[11] = 0.0;
-    grad_v[0] = grad_v[1] = grad_v[2] = grad_v[3] = 0.0;
-    grad_v[4] = 1.0;  grad_v[5] = x;  grad_v[6] = y;  grad_v[7] = z;
-    grad_v[8] = grad_v[9] = grad_v[10] = grad_v[11] = 0.0;
-    grad_w[0] = grad_w[1] = grad_w[2] = grad_w[3] = grad_w[4] = grad_w[5] = grad_w[6] = grad_w[7] = 0.0;
-    grad_w[8] = 1.0;  grad_w[9] = x;  grad_w[10] = y;  grad_w[11] = z;
-}
-
-__device__ void compose3d1(const ShapeParam3D1& p_old, const ShapeParam3D1& delta_p, ShapeParam3D1& p_new) {
-    for (int i = 0; i < 12; ++i) {
-        ((double*)&p_new)[i] = ((double*)&p_old)[i] + ((double*)&delta_p)[i];
-    }
-}
-
-__device__ double delta_norm3d1(const ShapeParam3D1& delta_p, int subset_rx, int subset_ry, int subset_rz) {
-    double norm = 0.0;
-    norm += delta_p.u  * delta_p.u;
-    norm += delta_p.ux * delta_p.ux * subset_rx * subset_rx;
-    norm += delta_p.uy * delta_p.uy * subset_ry * subset_ry;
-    norm += delta_p.uz * delta_p.uz * subset_rz * subset_rz;
-    norm += delta_p.v  * delta_p.v;
-    norm += delta_p.vx * delta_p.vx * subset_rx * subset_rx;
-    norm += delta_p.vy * delta_p.vy * subset_ry * subset_ry;
-    norm += delta_p.vz * delta_p.vz * subset_rz * subset_rz;
-    norm += delta_p.w  * delta_p.w;
-    norm += delta_p.wx * delta_p.wx * subset_rx * subset_rx;
-    norm += delta_p.wy * delta_p.wy * subset_ry * subset_ry;
-    norm += delta_p.wz * delta_p.wz * subset_rz * subset_rz;
-    return sqrt(norm);
-}
-
-// 三线性插值
-__device__ float trilinear_interpolate(const float* image, int depth, int height, int width,
-                                       float z, float y, float x) {
-    int x0 = floorf(x), x1 = x0 + 1;
-    int y0 = floorf(y), y1 = y0 + 1;
-    int z0 = floorf(z), z1 = z0 + 1;
-    float dx = x - x0, dy = y - y0, dz = z - z0;
-    x0 = max(0, min(x0, width - 1));
-    x1 = max(0, min(x1, width - 1));
-    y0 = max(0, min(y0, height - 1));
-    y1 = max(0, min(y1, height - 1));
-    z0 = max(0, min(z0, depth - 1));
-    z1 = max(0, min(z1, depth - 1));
-    #define IDX(z,y,x) ((z)*height*width + (y)*width + (x))
-    float c000 = image[IDX(z0, y0, x0)];
-    float c001 = image[IDX(z0, y0, x1)];
-    float c010 = image[IDX(z0, y1, x0)];
-    float c011 = image[IDX(z0, y1, x1)];
-    float c100 = image[IDX(z1, y0, x0)];
-    float c101 = image[IDX(z1, y0, x1)];
-    float c110 = image[IDX(z1, y1, x0)];
-    float c111 = image[IDX(z1, y1, x1)];
-    float c00 = c000 * (1 - dx) + c001 * dx;
-    float c01 = c010 * (1 - dx) + c011 * dx;
-    float c10 = c100 * (1 - dx) + c101 * dx;
-    float c11 = c110 * (1 - dx) + c111 * dx;
-    float c0 = c00 * (1 - dy) + c01 * dy;
-    float c1 = c10 * (1 - dy) + c11 * dy;
-    return c0 * (1 - dz) + c1 * dz;
-}
-
-// Sobel梯度图
-__device__ void compute_gradients_3d(const float* image, int depth, int height, int width,
-                                     float* grad_x, float* grad_y, float* grad_z) {
-    for (int z = 1; z < depth - 1; ++z)
-        for (int y = 1; y < height - 1; ++y)
-            for (int x = 1; x < width - 1; ++x) {
-                int idx = z * height * width + y * width + x;
-                grad_x[idx] =
-                    -image[idx - width - height*width] - 2*image[idx - height*width] - image[idx + width - height*width]
-                    +image[idx - width + height*width] + 2*image[idx + height*width] + image[idx + width + height*width];
-                grad_x[idx] /= 8.0f;
-                grad_y[idx] =
-                    -image[idx - 1 - height*width] - 2*image[idx - height*width] - image[idx + 1 - height*width]
-                    +image[idx - 1 + height*width] + 2*image[idx + height*width] + image[idx + 1 + height*width];
-                grad_y[idx] /= 8.0f;
-                grad_z[idx] =
-                    -image[idx - width - 1] - 2*image[idx - 1] - image[idx + width - 1]
-                    +image[idx - width + 1] + 2*image[idx + 1] + image[idx + width + 1];
-                grad_z[idx] /= 8.0f;
+        
+        // 计算与后续列的内积并正交化
+        for (int k = j + 1; k < n; k++) {
+            float dot = 0.0f;
+            for (int i = 0; i < n; i++) {
+                dot += Q[i * n + j] * Q[i * n + k];
             }
+            R[j * n + k] = dot;
+            
+            // 从后续列中减去投影
+            for (int i = 0; i < n; i++) {
+                Q[i * n + k] -= dot * Q[i * n + j];
+            }
+        }
+    }
+    
+    // 计算 Q^T * b
+    double QtB[12];
+    for (int i = 0; i < n; i++) {
+        QtB[i] = 0.0;
+        for (int j = 0; j < n; j++) {
+            QtB[i] += Q[j * n + i] * bb[j]; // Q^T[i][j] = Q[j][i]
+        }
+    }
+    
+    // 后向替换求解 R * x = Q^T * b
+    for (int i = n - 1; i >= 0; i--) {
+        float sum = 0.0f;
+        for (int j = i + 1; j < n; j++) {
+            sum += R[i * n + j] * x[j];
+        }
+        
+        // 检查对角元素避免除零
+        if (fabs(R[i * n + i]) < 1e-14) {
+            return false;
+        }
+        
+        x[i] = (QtB[i] - sum) / R[i * n + i];
+    }
+    
+    return true;
 }
+
+// 添加正则化的QR分解以处理病态矩阵
+__device__ bool solveLinearSystemRegularizedQR(const float* A, const float* b, float* x, int n) {
+    // 复制矩阵并添加Tikhonov正则化
+    float ARegularized[144];
+    float regularization = 1e-8f; // 正则化参数
+
+    for (int i = 0; i < n * n; i++) {
+        ARegularized[i] = A[i];
+    }
+    
+    // 添加对角正则化项
+    for (int i = 0; i < n; i++) {
+        ARegularized[i * n + i] += regularization;
+    }
+    
+    // 使用正则化矩阵进行QR分解
+    return solveLinearSystemQR(ARegularized, b, x, n);
+}
+
+// 主要的线性系统求解函数
+__device__ bool solveLinearSystem(const float* A, const float* b, float* x, int n) {
+    // 首先尝试标准QR分解
+    if (solveLinearSystemQR(A, b, x, n)) {
+        return true;
+    }
+    
+    // 如果失败，尝试正则化QR分解
+    return solveLinearSystemRegularizedQR(A, b, x, n);
+}
+
+
+// shape函数求导工具
+__device__ float getShapeFn(int paramIdx, int numParams, float gradX, float gradY, float x, float y) {
+    if (paramIdx < 0) return 0.0f;
+    switch (paramIdx) {
+        case 0: return gradX; // du
+        case 1: return gradY; // dv
+        // 仿射参数
+        case 2: return (numParams >= 6) ? gradX * x : 0.0f; // du/dx
+        case 3: return (numParams >= 6) ? gradX * y : 0.0f; // du/dy
+        case 4: return (numParams >= 6) ? gradY * x : 0.0f; // dv/dx
+        case 5: return (numParams >= 6) ? gradY * y : 0.0f; // dv/dy
+        // 二阶参数
+        case 6:  return (numParams >= 12) ? gradX * x * x * 0.5f : 0.0f; // d²u/dx²
+        case 7:  return (numParams >= 12) ? gradX * x * y : 0.0f;         // d²u/dxdy
+        case 8:  return (numParams >= 12) ? gradX * y * y * 0.5f : 0.0f; // d²u/dy²
+        case 9:  return (numParams >= 12) ? gradY * x * x * 0.5f : 0.0f; // d²v/dx²
+        case 10: return (numParams >= 12) ? gradY * x * y : 0.0f;        // d²v/dxdy
+        case 11: return (numParams >= 12) ? gradY * y * y * 0.5f : 0.0f; // d²v/dy²
+        default: return 0.0f;
+    }
+}
+
+ // 预计算Hessian矩阵，与CPU版本完全一致
+__device__ void computehessian(const float* ref_image, int subsetRadius, int imageHeight, int imageWidth,
+                                      int centerY, int centerX, int numParams, float* hessian) 
+ {
+    for (int i = 0; i < numParams; i++) 
+    {
+        for (int j = i; j < numParams; j++) 
+        {
+            float sum = 0.0f;
+
+            // 遍历子集计算Hessian元素
+            for (int ly = -subsetRadius; ly <= subsetRadius; ly++) {
+                for (int lx = -subsetRadius; lx <= subsetRadius; lx++) {
+                    int refX = centerX + lx;
+                    int refY = centerY + ly;
+
+                    if (refX >= 1 && refX < imageWidth - 1 && refY >= 1 && refY < imageHeight - 1) {
+                        // 计算Sobel梯度
+                        float gradX, gradY;
+                        computeSobelGradients(ref_image, refX, refY, imageWidth, imageHeight, gradX, gradY);
+                        
+                        // 计算shape function derivatives
+                        float x = static_cast<float>(lx);
+                        float y = static_cast<float>(ly);
+
+                        float shapeFni, shapeFnj;
+                        shapeFni = getShapeFn(i, numParams, gradX, gradY, x, y);
+                        shapeFnj = getShapeFn(j, numParams, gradX, gradY, x, y);
+                        sum += shapeFni * shapeFnj;
+                    }
+                }
+            }
+            // 存储Hessian矩阵元素
+            hessian[i * numParams + j] = sum;
+            hessian[j * numParams + i] = sum; // 对称矩阵
+        }
+    }
+ }   
+
+
+__device__ ZNCCAndErrorResult computeZNCCAndError(
+    const float* refImage, const float* tarImage,
+    float centerY, float centerX, const float* warpParams,
+    int imageHeight, int imageWidth, int subsetRadius, int numParams)
+{
+    float sumRef = 0.0f, sumDef = 0.0f;
+    float sumRefSq = 0.0f, sumDefSq = 0.0f;
+    float sumRefDef = 0.0f;
+    int count = 0;
+    float errorVec[12] = {0};
+
+    for (int ly = -subsetRadius; ly <= subsetRadius; ly++) 
+    {
+        for (int lx = -subsetRadius; lx <= subsetRadius; lx++) 
+        {
+            int refX = centerX + lx;
+            int refY = centerY + ly;
+            // 确保在图像边界内
+            if (refX >= 1 && refX < imageWidth - 1 && refY >= 1 && refY < imageHeight - 1) {
+                float refI = refImage[refY * imageWidth + refX];
+                float warpedX, warpedY;
+                WarpPoint(float(lx), float(ly), warpParams, warpedX, warpedY, numParams);
+                float tarImgX = float(centerX) + warpedX;
+                float tarImgY = float(centerY) + warpedY;
+                if (tarImgX >= 0.0f && tarImgX < imageWidth - 1.0f && tarImgY >= 0.0f && tarImgY < imageHeight - 1.0f) {
+                    float defI = BilinearInterpolation(tarImgX, tarImgY, tarImage, imageWidth, imageHeight);
+                    float error = refI - defI;
+
+                    // ZNCC统计量
+                    sumRef += refI;
+                    sumDef += defI;
+                    sumRefSq += refI * refI;
+                    sumDefSq += defI * defI;
+                    sumRefDef += refI * defI;
+                    count++;
+
+                    // 误差向量
+                    float gradX, gradY;
+                    computeSobelGradients(refImage, refX, refY, imageWidth, imageHeight, gradX, gradY);
+                    float x = float(lx), y = float(ly);
+
+                    if (numParams >= 6) {
+                        errorVec[0] += error * gradX;       // du
+                        errorVec[1] += error * gradY;       // dv
+                        errorVec[2] += error * gradX * x;   // du/dx
+                        errorVec[3] += error * gradX * y;   // du/dy
+                        errorVec[4] += error * gradY * x;   // dv/dx
+                        errorVec[5] += error * gradY * y;   // dv/dy
+                    }
+                    if (numParams >= 12) {
+                        errorVec[6]  += error * gradX * x * x * 0.5;    // d²u/dx²
+                        errorVec[7]  += error * gradX * x * y;          // d²u/dxdy
+                        errorVec[8]  += error * gradX * y * y * 0.5;    // d²u/dy²
+                        errorVec[9]  += error * gradY * x * x * 0.5;    // d²v/dx²
+                        errorVec[10] += error * gradY * x * y;          // d²v/dxdy
+                        errorVec[11] += error * gradY * y * y * 0.5;    // d²v/dy²
+                    }
+                }
+            }
+        }
+    }
+    // 计算ZNCC
+    float zncc = -4.0f; // 默认值
+    if (count > 0) {
+        float meanRef = sumRef / count, meanDef = sumDef / count;
+        float varRef = sumRefSq / count - meanRef * meanRef;
+        float varDef = sumDefSq / count - meanDef * meanDef;
+        float covar = sumRefDef / count - meanRef * meanDef;
+        if (varRef > 1e-10 && varDef > 1e-10)
+            zncc = covar / sqrt(varRef * varDef);
+    }
+    ZNCCAndErrorResult result;
+    result.zncc = zncc;
+    for (int i = 0; i < 12; ++i) result.errorVector[i] = errorVec[i];
+    result.count = count;
+    return result;
+}
+
+
+//******************************************************icgn3D******************************************************/
+__device__ void computeSobelGradients3D(const float* image, int x, int y, int z,
+                                     int width, int height, int depth,
+                                     float* grad_x, float* grad_y, float* grad_z)
+{
+    // Sobel核权重
+    const int wx[3] = {-1, 0, 1};
+    const int w[3]  = {1, 2, 1};
+
+    // 边界检查
+    if (x < 1 || x >= width-1 || y < 1 || y >= height-1 || z < 1 || z >= depth-1) {
+        *grad_x = 0;
+        *grad_y = 0;
+        *grad_z = 0;
+        return;
+    }
+
+    float gx = 0.0f, gy = 0.0f, gz = 0.0f;
+
+    #pragma unroll
+    for (int dz = -1; dz <= 1; ++dz) {
+        int zpos = z + dz;
+        #pragma unroll
+        for (int dy = -1; dy <= 1; ++dy) {
+            int ypos = y + dy;
+            #pragma unroll
+            for (int dx = -1; dx <= 1; ++dx) {
+                int xpos = x + dx;
+                float val = image[zpos * height * width + ypos * width + xpos];
+                gx += wx[dx+1] * w[dy+1] * w[dz+1] * val;
+                gy += wx[dy+1] * w[dx+1] * w[dz+1] * val;
+                gz += wx[dz+1] * w[dx+1] * w[dy+1] * val;
+            }
+        }
+    }
+    *grad_x = gx / 32.0f;
+    *grad_y = gy / 32.0f;
+    *grad_z = gz / 32.0f;
+}
+
+
+// 三维shape function查表
+__device__ float getShapeFn3D(int paramIdx, int numParams, float gradX, float gradY, float gradZ, float x, float y, float z) {
+    // 3D 12参数顺序: u, ux, uy, uz, v, vx, vy, vz, w, wx, wy, wz
+    switch (paramIdx) {
+        case 0:  return gradX;                // du
+        case 1:  return gradX * x;            // du/dx
+        case 2:  return gradX * y;            // du/dy
+        case 3:  return gradX * z;            // du/dz
+        case 4:  return gradY;                // dv
+        case 5:  return gradY * x;            // dv/dx
+        case 6:  return gradY * y;            // dv/dy
+        case 7:  return gradY * z;            // dv/dz
+        case 8:  return gradZ;                // dw
+        case 9:  return gradZ * x;            // dw/dx
+        case 10: return gradZ * y;            // dw/dy
+        case 11: return gradZ * z;            // dw/dz
+        default: return 0.0f;
+    }
+}
+
+// 三维Hessian预计算
+__device__ void computehessian3d(
+    const float* ref_image,
+    int subsetRadius,
+    int imageWidth,
+    int imageHeight,
+    int imageDepth,
+    int centerX,
+    int centerY,
+    int centerZ,
+    int numParams,
+    float* hessian)
+{
+    for (int i = 0; i < numParams; i++) {
+        for (int j = i; j < numParams; j++) {
+            float sum = 0.0f;
+
+            // 遍历三维子集
+            for (int lz = -subsetRadius; lz <= subsetRadius; lz++) {
+                for (int ly = -subsetRadius; ly <= subsetRadius; ly++) {
+                    for (int lx = -subsetRadius; lx <= subsetRadius; lx++) {
+                        int refX = centerX + lx;
+                        int refY = centerY + ly;
+                        int refZ = centerZ + lz;
+
+                        if (refX >= 1 && refX < imageWidth - 1 &&
+                            refY >= 1 && refY < imageHeight - 1 &&
+                            refZ >= 1 && refZ < imageDepth - 1) {
+
+                            // 计算三维Sobel梯度
+                            float gradX, gradY, gradZ;
+                            computeSobelGradients3D(ref_image, refX, refY, refZ, imageWidth, imageHeight, imageDepth, &gradX, &gradY, &gradZ);
+
+                            float x = static_cast<float>(lx);
+                            float y = static_cast<float>(ly);
+                            float z = static_cast<float>(lz);
+
+                            float shapeFni = getShapeFn3D(i, numParams, gradX, gradY, gradZ, x, y, z);
+                            float shapeFnj = getShapeFn3D(j, numParams, gradX, gradY, gradZ, x, y, z);
+
+                            sum += shapeFni * shapeFnj;
+                        }
+                    }
+                }
+            }
+
+            hessian[i * numParams + j] = sum;
+            hessian[j * numParams + i] = sum; // 对称矩阵
+        }
+    }
+}
+
+
+// 三维二次形变仿射+二阶，参数顺序：u, ux, uy, uz, v, vx, vy, vz, w, wx, wy, wz
+__device__ __forceinline__ void WarpPoint3D(
+    float x, float y, float z, const float* warpParams,
+    float& warpedX, float& warpedY, float& warpedZ)
+{
+    // 平移分量
+    float u = warpParams[0];
+    float v = warpParams[4];
+    float w = warpParams[8];
+
+    warpedX = x + u;
+    warpedY = y + v;
+    warpedZ = z + w;
+
+    // du/dx, du/dy, du/dz
+    float ux = warpParams[1];
+    float uy = warpParams[2];
+    float uz = warpParams[3];
+    // dv/dx, dv/dy, dv/dz
+    float vx = warpParams[5];
+    float vy = warpParams[6];
+    float vz = warpParams[7];
+    // dw/dx, dw/dy, dw/dz
+    float wx = warpParams[9];
+    float wy = warpParams[10];
+    float wz = warpParams[11];
+
+    warpedX += ux * x + uy * y + uz * z;
+    warpedY += vx * x + vy * y + vz * z;
+    warpedZ += wx * x + wy * y + wz * z;
+}
+
+
+__device__ __forceinline__ float TrilinearInterpolation(
+    float x, float y, float z,
+    const float* image, int width, int height, int depth)
+{
+    // 边界检查
+    if (x < 0.0f || x >= width - 1.0f ||
+        y < 0.0f || y >= height - 1.0f ||
+        z < 0.0f || z >= depth - 1.0f) {
+        return 0.0f;
+    }
+
+    // 整数和小数部分
+    int x1 = static_cast<int>(x);
+    int y1 = static_cast<int>(y);
+    int z1 = static_cast<int>(z);
+    int x2 = x1 + 1;
+    int y2 = y1 + 1;
+    int z2 = z1 + 1;
+
+    float fx = x - static_cast<float>(x1);
+    float fy = y - static_cast<float>(y1);
+    float fz = z - static_cast<float>(z1);
+
+    // 边界保护
+    x2 = x2 >= width  ? width  - 1 : x2;
+    y2 = y2 >= height ? height - 1 : y2;
+    z2 = z2 >= depth  ? depth  - 1 : z2;
+
+    // 取8个角点
+    float c000 = image[z1 * height * width + y1 * width + x1];
+    float c001 = image[z1 * height * width + y1 * width + x2];
+    float c010 = image[z1 * height * width + y2 * width + x1];
+    float c011 = image[z1 * height * width + y2 * width + x2];
+    float c100 = image[z2 * height * width + y1 * width + x1];
+    float c101 = image[z2 * height * width + y1 * width + x2];
+    float c110 = image[z2 * height * width + y2 * width + x1];
+    float c111 = image[z2 * height * width + y2 * width + x2];
+
+    // 3D插值
+    float c00 = c000 * (1 - fx) + c001 * fx;
+    float c01 = c010 * (1 - fx) + c011 * fx;
+    float c10 = c100 * (1 - fx) + c101 * fx;
+    float c11 = c110 * (1 - fx) + c111 * fx;
+
+    float c0 = c00 * (1 - fy) + c01 * fy;
+    float c1 = c10 * (1 - fy) + c11 * fy;
+
+    float val = c0 * (1 - fz) + c1 * fz;
+
+    return val;
+}
+
+
+__device__ ZNCCAndErrorResult computeZNCCAndError3D(
+    const float* refImage, const float* tarImage,
+    float centerZ, float centerY, float centerX, const float* warpParams,
+    int depth, int height, int width, int subsetRadius)
+{
+    float sumRef = 0.0f, sumDef = 0.0f;
+    float sumRefSq = 0.0f, sumDefSq = 0.0f;
+    float sumRefDef = 0.0f;
+    int count = 0;
+    float errorVec[12] = {0};
+
+    for (int lz = -subsetRadius; lz <= subsetRadius; lz++) {
+        for (int ly = -subsetRadius; ly <= subsetRadius; ly++) {
+            for (int lx = -subsetRadius; lx <= subsetRadius; lx++) {
+                int refX = int(centerX) + lx;
+                int refY = int(centerY) + ly;
+                int refZ = int(centerZ) + lz;
+                // 确保在图像边界内
+                if (refX >= 1 && refX < width - 1 &&
+                    refY >= 1 && refY < height - 1 &&
+                    refZ >= 1 && refZ < depth - 1) {
+                    float refI = refImage[refZ * height * width + refY * width + refX];
+                    float warpedX, warpedY, warpedZ;
+                    WarpPoint3D(float(lx), float(ly), float(lz), warpParams, warpedX, warpedY, warpedZ);
+                    float tarImgX = centerX + warpedX;
+                    float tarImgY = centerY + warpedY;
+                    float tarImgZ = centerZ + warpedZ;
+                    if (tarImgX >= 0.0f && tarImgX < width - 1.0f &&
+                        tarImgY >= 0.0f && tarImgY < height - 1.0f &&
+                        tarImgZ >= 0.0f && tarImgZ < depth - 1.0f) {
+                        float defI = TrilinearInterpolation(tarImgX, tarImgY, tarImgZ, tarImage, width, height, depth);
+                        float error = refI - defI;
+
+                        // ZNCC统计量
+                        sumRef += refI;
+                        sumDef += defI;
+                        sumRefSq += refI * refI;
+                        sumDefSq += defI * defI;
+                        sumRefDef += refI * defI;
+                        count++;
+
+                        // 误差向量（3D 12参数：u, ux, uy, uz, v, vx, vy, vz, w, wx, wy, wz）
+                        float gradX, gradY, gradZ;
+                        computeSobelGradients3D(refImage, refX, refY, refZ, width, height, depth, &gradX, &gradY, &gradZ);
+                        float x = float(lx), y = float(ly), z = float(lz);
+
+                        errorVec[0]  += error * gradX;           // u
+                        errorVec[1]  += error * gradX * x;       // ux
+                        errorVec[2]  += error * gradX * y;       // uy
+                        errorVec[3]  += error * gradX * z;       // uz
+
+                        errorVec[4]  += error * gradY;           // v
+                        errorVec[5]  += error * gradY * x;       // vx
+                        errorVec[6]  += error * gradY * y;       // vy
+                        errorVec[7]  += error * gradY * z;       // vz
+
+                        errorVec[8]  += error * gradZ;           // w
+                        errorVec[9]  += error * gradZ * x;       // wx
+                        errorVec[10] += error * gradZ * y;       // wy
+                        errorVec[11] += error * gradZ * z;       // wz
+                    }
+                }
+            }
+        }
+    }
+    // 计算ZNCC
+    float zncc = -4.0f; // 默认值
+    if (count > 0) {
+        float meanRef = sumRef / count, meanDef = sumDef / count;
+        float varRef = sumRefSq / count - meanRef * meanRef;
+        float varDef = sumDefSq / count - meanDef * meanDef;
+        float covar = sumRefDef / count - meanRef * meanDef;
+        if (varRef > 1e-10f && varDef > 1e-10f)
+            zncc = covar / sqrtf(varRef * varDef);
+    }
+    ZNCCAndErrorResult result;
+    result.zncc = zncc;
+    for (int i = 0; i < 12; ++i) result.errorVector[i] = errorVec[i];
+    result.count = count;
+    return result;
+}
+

@@ -3,10 +3,10 @@
 #include <cmath>
 #include <vector>
 #include <algorithm>
+#include <numeric>
 #include <nanoflann.hpp>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-#include <nanoflann.hpp>
 
 namespace StudyCorr_GPU {
 
@@ -21,12 +21,11 @@ struct SiftKeypointCloud {
     template <class BBOX> bool kdtree_get_bbox(BBOX&) const { return false; }
 };
 
-// nanoflann KDTree: use explicit size_t for index type
 typedef nanoflann::KDTreeSingleIndexAdaptor<
     nanoflann::L2_Simple_Adaptor<float, SiftKeypointCloud>,
     SiftKeypointCloud, 2, uint32_t> SiftKDTree;
 
-// CUDA RANSAC仿射核，OpenCorr风格
+// CUDA RANSAC参数结构体
 struct SiftAffineRansacParam {
     int trial_number;
     int sample_number;
@@ -36,6 +35,47 @@ struct SiftAffineRansacParam {
 
 __device__ float norm2(float x, float y) { return sqrtf(x*x + y*y); }
 
+// CUDA设备侧的QR分解解3x3线性方程组（仿OpenCorr CPU实现）
+__device__ void QR_3x3(const float A[9], const float b[3], float x[3]) {
+    float Q[9], R[9];
+    for (int i = 0; i < 9; ++i) { R[i] = A[i]; Q[i] = 0.0f; }
+    Q[0] = Q[4] = Q[8] = 1.0f;
+    for (int k = 0; k < 3; ++k) {
+        float norm_x = 0;
+        for (int i = k; i < 3; ++i)
+            norm_x += R[i * 3 + k] * R[i * 3 + k];
+        norm_x = sqrtf(norm_x);
+        float sign = R[k * 3 + k] >= 0 ? 1.0f : -1.0f;
+        float u1 = R[k * 3 + k] + sign * norm_x;
+        float w[3] = {0,0,0}; w[k] = u1;
+        for (int i = k + 1; i < 3; ++i) w[i] = R[i * 3 + k];
+        float wnorm = 0;
+        for (int i = k; i < 3; ++i) wnorm += w[i] * w[i];
+        wnorm = sqrtf(wnorm);
+        if (wnorm < 1e-8f) continue;
+        for (int i = k; i < 3; ++i) w[i] /= wnorm;
+        for (int j = k; j < 3; ++j) {
+            float dot = 0; for (int i = k; i < 3; ++i) dot += w[i] * R[i * 3 + j];
+            for (int i = k; i < 3; ++i) R[i * 3 + j] -= 2 * w[i] * dot;
+        }
+        for (int j = 0; j < 3; ++j) {
+            float dot = 0; for (int i = k; i < 3; ++i) dot += w[i] * Q[j * 3 + i];
+            for (int i = k; i < 3; ++i) Q[j * 3 + i] -= 2 * w[i] * dot;
+        }
+    }
+    float Qtb[3] = {0};
+    for (int i = 0; i < 3; ++i)
+        for (int k2 = 0; k2 < 3; ++k2)
+            Qtb[i] += Q[k2 * 3 + i] * b[k2];
+    for (int i = 2; i >= 0; --i) {
+        float sum = Qtb[i];
+        for (int j = i + 1; j < 3; ++j)
+            sum -= R[i * 3 + j] * x[j];
+        x[i] = sum / (R[i * 3 + i] + 1e-8f);
+    }
+}
+
+// --- CUDA核: 完全仿OpenCorr逻辑 ---
 __global__ void estimate_affine_opencorr_kernel(
     const SiftFeature2D* ref_kp,
     const SiftFeature2D* tar_kp,
@@ -46,13 +86,12 @@ __global__ void estimate_affine_opencorr_kernel(
     int N,
     SiftAffineRansacParam param,
     unsigned long long seed
-)
-{
+) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
     CudaPOI2D& poi = pois[idx];
 
-    // 1. 邻居数据
+    // 1. 邻居数据拷贝
     int neighbor_num = 0;
     int neighbor_idx[30];
     float neighbor_dist[30];
@@ -70,7 +109,7 @@ __global__ void estimate_affine_opencorr_kernel(
         return;
     }
 
-    // 2. 局部坐标转换
+    // 2. 转为局部坐标（减去poi）
     float ref_X[30], ref_Y[30], tar_X[30], tar_Y[30];
     for (int i = 0; i < neighbor_num; ++i) {
         int kp_idx = neighbor_idx[i];
@@ -80,90 +119,91 @@ __global__ void estimate_affine_opencorr_kernel(
         tar_Y[i] = tar_kp[kp_idx].y - poi.y;
     }
 
-    // 3. RANSAC洗牌采样
-    int best_inlier = 0, best_trial_counter = 0;
-    float best_affine[6] = {0};
-    int best_inlier_indices[30];
-    float best_mean_error = 1e10f;
+    // 3. RANSAC一致性最大集
+    int candidate_index[30];
+    for (int i = 0; i < neighbor_num; ++i) candidate_index[i] = i;
 
+    int trial_counter = 0;
+    float location_mean_error = 1e10f;
+    int max_set[30], max_set_size = 0;
+
+    // 随机数初始化
     curandState state;
     curand_init(seed + idx, 0, 0, &state);
 
-    int candidate_idx[30];
-    for (int i = 0; i < neighbor_num; ++i) candidate_idx[i] = i;
-
-    int trial_counter = 0;
     do {
-        // 洗牌采样
-        for (int i = neighbor_num-1; i > 0; --i) {
+        // 打乱采样序列
+        for (int i = neighbor_num - 1; i > 0; --i) {
             int j = curand(&state) % (i+1);
-            int tmp = candidate_idx[i]; candidate_idx[i] = candidate_idx[j]; candidate_idx[j] = tmp;
+            int tmp = candidate_index[i]; candidate_index[i] = candidate_index[j]; candidate_index[j] = tmp;
         }
+
         // 构造最小二乘
+        float ref_neighbors[9], tar_neighbors[9];
+        for (int j = 0; j < param.sample_number; ++j) {
+            int k = candidate_index[j];
+            ref_neighbors[3*j+0] = ref_X[k];
+            ref_neighbors[3*j+1] = ref_Y[k];
+            ref_neighbors[3*j+2] = 1.f;
+            tar_neighbors[3*j+0] = tar_X[k];
+            tar_neighbors[3*j+1] = tar_Y[k];
+            tar_neighbors[3*j+2] = 1.f;
+        }
+        // ref*affine=tar, affine是3x3
+        // Solve for affine: ref_neighbors * affine = tar_neighbors
+        // 这里仿OpenCorr只解仿射的x和y分量
+        float affine_x[3], affine_y[3];
+        // Build A, Bx, By
         float A[9] = {0}, Bx[3] = {0}, By[3] = {0};
-        for (int s = 0; s < param.sample_number; ++s) {
-            int k = candidate_idx[s];
-            float x = ref_X[k], y = ref_Y[k], tx = tar_X[k], ty = tar_Y[k];
+        for (int j = 0; j < param.sample_number; ++j) {
+            float x = ref_neighbors[3*j+0];
+            float y = ref_neighbors[3*j+1];
             float v[3] = {x, y, 1.f};
             for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c)
                 A[r*3+c] += v[r]*v[c];
             for (int r = 0; r < 3; ++r) {
-                Bx[r] += v[r]*tx;
-                By[r] += v[r]*ty;
+                Bx[r] += v[r] * tar_neighbors[3*j+0];
+                By[r] += v[r] * tar_neighbors[3*j+1];
             }
         }
-        float invA[9];
-        float det = A[0]*A[4]*A[8] + A[1]*A[5]*A[6] + A[2]*A[3]*A[7]
-                  - A[0]*A[5]*A[7] - A[1]*A[3]*A[8] - A[2]*A[4]*A[6];
-        bool ok = fabs(det) >= 1e-6f;
-        if (!ok) { trial_counter++; continue; }
-        invA[0]=(A[4]*A[8]-A[5]*A[7])/det; invA[1]=(A[2]*A[7]-A[1]*A[8])/det; invA[2]=(A[1]*A[5]-A[2]*A[4])/det;
-        invA[3]=(A[5]*A[6]-A[3]*A[8])/det; invA[4]=(A[0]*A[8]-A[2]*A[6])/det; invA[5]=(A[2]*A[3]-A[0]*A[5])/det;
-        invA[6]=(A[3]*A[7]-A[4]*A[6])/det; invA[7]=(A[1]*A[6]-A[0]*A[7])/det; invA[8]=(A[0]*A[4]-A[1]*A[3])/det;
-        float affine_x[3]={0}, affine_y[3]={0};
-        for (int r=0;r<3;++r) for(int j=0;j<3;++j) {
-            affine_x[r]+=invA[r*3+j]*Bx[j]; affine_y[r]+=invA[r*3+j]*By[j];
-        }
-        // 一致集判据
-        int inlier=0;
-        int inlier_indices[30];
-        float mean_error = 0.0f;
-        for(int i=0;i<neighbor_num;++i) {
-            float x=ref_X[i], y=ref_Y[i];
-            float tx=affine_x[0]*x + affine_x[1]*y + affine_x[2];
-            float ty=affine_y[0]*x + affine_y[1]*y + affine_y[2];
-            float err=norm2(tx-tar_X[i],ty-tar_Y[i]);
-            if(err<param.error_threshold) {
-                inlier_indices[inlier] = i;
-                mean_error += err;
-                inlier++;
+        QR_3x3(A, Bx, affine_x);
+        QR_3x3(A, By, affine_y);
+
+        // 计算一致集
+        int trial_set[30], trial_set_size = 0;
+        location_mean_error = 0;
+        for (int j = 0; j < neighbor_num; ++j) {
+            float x = ref_X[j];
+            float y = ref_Y[j];
+            float ex = affine_x[0]*x + affine_x[1]*y + affine_x[2] - tar_X[j];
+            float ey = affine_y[0]*x + affine_y[1]*y + affine_y[2] - tar_Y[j];
+            float err = norm2(ex, ey);
+            if (err < param.error_threshold) {
+                trial_set[trial_set_size++] = j;
+                location_mean_error += err;
             }
         }
-        mean_error = inlier > 0 ? mean_error/inlier : 1e10f;
-        if (inlier > best_inlier ||
-            (inlier == best_inlier && mean_error < best_mean_error))
-        {
-            best_inlier = inlier;
-            best_mean_error = mean_error;
-            for (int k = 0; k < inlier; ++k) best_inlier_indices[k] = inlier_indices[k];
-            for (int i=0;i<3;++i) { best_affine[i]=affine_x[i]; best_affine[i+3]=affine_y[i]; }
-            best_trial_counter = trial_counter;
+        if (trial_set_size > max_set_size) {
+            max_set_size = trial_set_size;
+            for (int ii = 0; ii < max_set_size; ++ii)
+                max_set[ii] = trial_set[ii];
         }
         trial_counter++;
+        location_mean_error = trial_set_size > 0 ? location_mean_error / trial_set_size : 1e10f;
     } while (trial_counter < param.trial_number &&
-        (best_inlier < param.min_inlier || best_mean_error > param.error_threshold/param.min_inlier));
+        (max_set_size < param.min_inlier || location_mean_error > param.error_threshold / (float)param.min_inlier));
 
-    // 4. 最终仿射重算
-    if (best_inlier < 3) {
+    // 4. 用最大一致集解最终仿射
+    if (max_set_size < 3) {
         poi.deformation = DeformationVector2D();
         poi.result.zncc = -2.f;
         poi.result.feature = 0;
         poi.result.iteration = trial_counter;
         return;
     }
-    float A[9]={0}, Bx[3]={0}, By[3]={0};
-    for (int k = 0; k < best_inlier; ++k) {
-        int i = best_inlier_indices[k];
+    float A[9] = {0}, Bx[3] = {0}, By[3] = {0};
+    for (int k = 0; k < max_set_size; ++k) {
+        int i = max_set[k];
         float x = ref_X[i], y = ref_Y[i];
         float v[3] = {x, y, 1.f};
         for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c)
@@ -173,30 +213,21 @@ __global__ void estimate_affine_opencorr_kernel(
             By[r] += v[r]*tar_Y[i];
         }
     }
-    float invA[9];
-    float det = A[0]*A[4]*A[8] + A[1]*A[5]*A[6] + A[2]*A[3]*A[7]
-              - A[0]*A[5]*A[7] - A[1]*A[3]*A[8] - A[2]*A[4]*A[6];
-    bool ok = fabs(det)>=1e-6f;
-    float affine_x[3]={0}, affine_y[3]={0};
-    if (ok) {
-        invA[0]=(A[4]*A[8]-A[5]*A[7])/det; invA[1]=(A[2]*A[7]-A[1]*A[8])/det; invA[2]=(A[1]*A[5]-A[2]*A[4])/det;
-        invA[3]=(A[5]*A[6]-A[3]*A[8])/det; invA[4]=(A[0]*A[8]-A[2]*A[6])/det; invA[5]=(A[2]*A[3]-A[0]*A[5])/det;
-        invA[6]=(A[3]*A[7]-A[4]*A[6])/det; invA[7]=(A[1]*A[6]-A[0]*A[7])/det; invA[8]=(A[0]*A[4]-A[1]*A[3])/det;
-        for (int r=0;r<3;++r) for(int j=0;j<3;++j) {
-            affine_x[r]+=invA[r*3+j]*Bx[j]; affine_y[r]+=invA[r*3+j]*By[j];
-        }
-    }
-    // 仿射参数写回（OpenCorr风格）
-    poi.deformation.u   = affine_x[2];
-    poi.deformation.ux  = affine_x[0] - 1.f;
-    poi.deformation.uy  = affine_x[1];
-    poi.deformation.v   = affine_y[2];
-    poi.deformation.vx  = affine_y[0];
-    poi.deformation.vy  = affine_y[1] - 1.f;
+    float affine_x[3] = {0}, affine_y[3] = {0};
+    QR_3x3(A, Bx, affine_x);
+    QR_3x3(A, By, affine_y);
+
+    // 按OpenCorr风格写仿射参数
+    poi.deformation.u  = affine_x[2];
+    poi.deformation.ux = affine_x[0] - 1.f;
+    poi.deformation.uy = affine_x[1];
+    poi.deformation.v  = affine_y[2];
+    poi.deformation.vx = affine_y[0];
+    poi.deformation.vy = affine_y[1] - 1.f;
     poi.deformation.uxx = poi.deformation.uxy = poi.deformation.uyy = 0.f;
     poi.deformation.vxx = poi.deformation.vxy = poi.deformation.vyy = 0.f;
 
-    // debug/特征统计
+    // 统计/特征输出
     float dist_sum = 0.0f, dist_max = 0.0f, dist_min = 1e10f;
     for (int i = 0; i < neighbor_num; ++i) {
         dist_sum += neighbor_dist[i];
@@ -204,12 +235,12 @@ __global__ void estimate_affine_opencorr_kernel(
         if (neighbor_dist[i] < dist_min) dist_min = neighbor_dist[i];
     }
     float dist_mean = neighbor_num > 0 ? dist_sum / neighbor_num : 0.0f;
-    poi.result.feature = best_inlier;
+    poi.result.feature = max_set_size;
     poi.result.zncc = 0.f;
     poi.result.u0 = dist_mean;
     poi.result.v0 = dist_max;
-    poi.result.iteration = best_trial_counter;
-    poi.result.convergence = best_mean_error;
+    poi.result.iteration = trial_counter;
+    poi.result.convergence = location_mean_error;
 }
 
 // --- SiftAffineBatchGpu实现 ---
@@ -220,8 +251,8 @@ SiftAffineBatchGpu::SiftAffineBatchGpu(const SiftAffineParam& param)
 
 SiftAffineBatchGpu::~SiftAffineBatchGpu() { release_cuda(); }
 
-
 // KDTree/knnSearch/暴力补齐（OpenCorr式）+分配CUDA内存
+// 逻辑完全与OpenCorr一致：radiusSearch->knn补齐->暴力补齐
 void SiftAffineBatchGpu::prepare_cuda(const SiftFeature2D* ref_kp, const SiftFeature2D* tar_kp, int num_kp, cudaStream_t stream) {
     release_cuda();
     num_kp_ = num_kp;
@@ -248,7 +279,7 @@ void SiftAffineBatchGpu::prepare_cuda(const SiftFeature2D* ref_kp, const SiftFea
         // 1. radiusSearch
         nanoflann::SearchParameters params;
         params.sorted = false;
-        kdtree.radiusSearch(query_pt, param_.kd_radius * param_.kd_radius, ret_matches, params);
+        int found = (int)kdtree.radiusSearch(query_pt, param_.kd_radius * param_.kd_radius, ret_matches, params);
 
         int got = 0;
         for (auto& m : ret_matches) {
@@ -262,12 +293,12 @@ void SiftAffineBatchGpu::prepare_cuda(const SiftFeature2D* ref_kp, const SiftFea
         if (got < param_.min_inlier) {
             std::vector<uint32_t> knn_idx(max_neighbor);
             std::vector<float> knn_dist(max_neighbor);
-            size_t found = kdtree.knnSearch(query_pt, max_neighbor, knn_idx.data(), knn_dist.data());
-            for (size_t k = got; k < std::min(found, size_t(max_neighbor)); ++k) {
+            size_t found_knn = kdtree.knnSearch(query_pt, max_neighbor, knn_idx.data(), knn_dist.data());
+            for (size_t k = got; k < std::min(found_knn, size_t(max_neighbor)); ++k) {
                 neighbor_idx_[pi*max_neighbor + k] = int(knn_idx[k]);
                 neighbor_dist_[pi*max_neighbor + k] = std::sqrt(knn_dist[k]);
             }
-            got = int(std::max(got, int(found)));
+            got = int(std::max(got, int(found_knn)));
         }
 
         // 3. 暴力补齐
@@ -308,10 +339,10 @@ void SiftAffineBatchGpu::compute_batch_cuda(CudaPOI2D* pois, int N, cudaStream_t
     cudaMemcpyAsync(d_pois, pois, N*sizeof(CudaPOI2D), cudaMemcpyHostToDevice, stream);
 
     SiftAffineRansacParam d_param;
-    d_param.trial_number = param_.trial_number;
-    d_param.sample_number = param_.sample_number;
+    d_param.trial_number    = param_.trial_number;
+    d_param.sample_number   = param_.sample_number;
     d_param.error_threshold = param_.error_threshold;
-    d_param.min_inlier = param_.min_inlier;
+    d_param.min_inlier      = param_.min_inlier;
 
     int max_neighbor = 30;
     int block = 128, grid = (N + block - 1) / block;
@@ -336,4 +367,4 @@ void SiftAffineBatchGpu::release_cuda() {
     d_neighbor_dist_ = nullptr;
 }
 
-} // namespace StudyCorr
+} // namespace StudyCorr_GPU

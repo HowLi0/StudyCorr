@@ -8,6 +8,74 @@ namespace StudyCorr_GPU {
 SiftFeatureBatchGpu::SiftFeatureBatchGpu() {}
 SiftFeatureBatchGpu::~SiftFeatureBatchGpu() { release(); }
 
+int ImproveHomography(SiftData &data, float *homography, int numLoops, float minScore, float maxAmbiguity, float thresh)
+{
+#ifdef MANAGEDMEM
+  SiftPoint *mpts = data.m_data;
+#else
+  if (data.h_data==NULL)
+    return 0;
+  SiftPoint *mpts = data.h_data;
+#endif
+  float limit = thresh*thresh;
+  int numPts = data.numPts;
+  cv::Mat M(8, 8, CV_64FC1);
+  cv::Mat A(8, 1, CV_64FC1), X(8, 1, CV_64FC1);
+  double Y[8];
+  for (int i=0;i<8;i++) 
+    A.at<double>(i, 0) = homography[i] / homography[8];
+  for (int loop=0;loop<numLoops;loop++) {
+    M = cv::Scalar(0.0);
+    X = cv::Scalar(0.0);
+    for (int i=0;i<numPts;i++) {
+      SiftPoint &pt = mpts[i];
+      if (pt.score<minScore || pt.ambiguity>maxAmbiguity)
+	continue;
+      float den = A.at<double>(6)*pt.xpos + A.at<double>(7)*pt.ypos + 1.0f;
+      float dx = (A.at<double>(0)*pt.xpos + A.at<double>(1)*pt.ypos + A.at<double>(2)) / den - pt.match_xpos;
+      float dy = (A.at<double>(3)*pt.xpos + A.at<double>(4)*pt.ypos + A.at<double>(5)) / den - pt.match_ypos;
+      float err = dx*dx + dy*dy;
+      float wei = (err<limit ? 1.0f : 0.0f); //limit / (err + limit);
+      Y[0] = pt.xpos;
+      Y[1] = pt.ypos;
+      Y[2] = 1.0;
+      Y[3] = Y[4] = Y[5] = 0.0;
+      Y[6] = - pt.xpos * pt.match_xpos;
+      Y[7] = - pt.ypos * pt.match_xpos;
+      for (int c=0;c<8;c++) 
+        for (int r=0;r<8;r++) 
+          M.at<double>(r,c) += (Y[c] * Y[r] * wei);
+      X += (cv::Mat(8,1,CV_64FC1,Y) * pt.match_xpos * wei);
+      Y[0] = Y[1] = Y[2] = 0.0;
+      Y[3] = pt.xpos;
+      Y[4] = pt.ypos; 
+      Y[5] = 1.0;
+      Y[6] = - pt.xpos * pt.match_ypos;
+      Y[7] = - pt.ypos * pt.match_ypos;
+      for (int c=0;c<8;c++) 
+        for (int r=0;r<8;r++) 
+          M.at<double>(r,c) += (Y[c] * Y[r] * wei);
+      X += (cv::Mat(8,1,CV_64FC1,Y) * pt.match_ypos * wei);
+    }
+    cv::solve(M, X, A, cv::DECOMP_CHOLESKY);
+  }
+  int numfit = 0;
+  for (int i=0;i<numPts;i++) {
+    SiftPoint &pt = mpts[i];
+    float den = A.at<double>(6)*pt.xpos + A.at<double>(7)*pt.ypos + 1.0;
+    float dx = (A.at<double>(0)*pt.xpos + A.at<double>(1)*pt.ypos + A.at<double>(2)) / den - pt.match_xpos;
+    float dy = (A.at<double>(3)*pt.xpos + A.at<double>(4)*pt.ypos + A.at<double>(5)) / den - pt.match_ypos;
+    float err = dx*dx + dy*dy;
+    if (err<limit) 
+      numfit++;
+    pt.match_error = sqrt(err);
+  }
+  for (int i=0;i<8;i++) 
+    homography[i] = A.at<double>(i);
+  homography[8] = 1.0f;
+  return numfit;
+}
+
 void SiftFeatureBatchGpu::release() {
     if (d_ref_img_) { cudaFree(d_ref_img_); d_ref_img_ = nullptr; }
     if (d_tar_img_) { cudaFree(d_tar_img_); d_tar_img_ = nullptr; }
@@ -32,10 +100,6 @@ void SiftFeatureBatchGpu::prepare_cuda(const float* ref_img, const float* tar_im
 }
 
 void SiftFeatureBatchGpu::compute_match_batch_cuda(cudaStream_t stream) {
-    match_kp_ref.clear();
-    match_kp_tar.clear();
-    num_match = 0;
-
     // --- 检测参考图特征点 ---
     SiftData ref_data;
     InitSiftData(ref_data, max_feat_, true, true);
@@ -55,42 +119,26 @@ void SiftFeatureBatchGpu::compute_match_batch_cuda(cudaStream_t stream) {
 
     // --- CUDA SIFT批量匹配 ---
     MatchSiftData(ref_data, tar_data);
-
-    // 默认参数
-    float minScore = 0.85f;
-    float maxAmbiguity = 0.95f;
-
-    // 只保留配对点
+    float homography[9];
+    int numMatches;
+    FindHomography(ref_data, homography, &numMatches, 10000, 0.00f, 0.80f, 5.0);
+    int numFit = ImproveHomography(ref_data, homography, 5, 0.00f, 0.80f, 3.0);
+    std::cout << "Number of original features: " <<  ref_data.numPts << " " << tar_data.numPts << std::endl;
+    std::cout << "Number of matching features: " << numFit << " " << numMatches << " " << 100.0f*numFit/std::min(ref_data.numPts, tar_data.numPts) << "% " << 1 << " " << 3.0 << std::endl;
+    
+    num_match = 0;
+    match_kp_ref.clear();
+    match_kp_tar.clear();
     for (int i = 0; i < ref_data.numPts; ++i) {
-        const SiftPoint& ref_pt = ref_data.h_data[i];
-        if (ref_pt.score >= minScore && ref_pt.ambiguity <= maxAmbiguity && ref_pt.match >= 0 && ref_pt.match < tar_data.numPts) {
-            const SiftPoint& tar_pt = tar_data.h_data[ref_pt.match];
-            SiftFeature2D fref, ftar;
-            // 拷贝参考点
-            fref.x = ref_pt.xpos;
-            fref.y = ref_pt.ypos;
-            fref.scale = ref_pt.scale;
-            fref.orientation = ref_pt.orientation;
-            fref.score = ref_pt.score;
-            fref.ambiguity = ref_pt.ambiguity;
-            fref.match = ref_pt.match;
-            fref.match_x = ref_pt.match_xpos;
-            fref.match_y = ref_pt.match_ypos;
-            memcpy(fref.data, ref_pt.data, sizeof(float)*128);
-            // 拷贝目标点
-            ftar.x = tar_pt.xpos;
-            ftar.y = tar_pt.ypos;
-            ftar.scale = tar_pt.scale;
-            ftar.orientation = tar_pt.orientation;
-            ftar.score = tar_pt.score;
-            ftar.ambiguity = tar_pt.ambiguity;
-            ftar.match = tar_pt.match;
-            ftar.match_x = tar_pt.match_xpos;
-            ftar.match_y = tar_pt.match_ypos;
-            memcpy(ftar.data, tar_pt.data, sizeof(float)*128);
-
-            match_kp_ref.push_back(fref);
-            match_kp_tar.push_back(ftar);
+        const SiftPoint& pt = ref_data.h_data[i];
+        if (pt.match >= 0 && pt.match_error < 3.0) { // thresh与ImproveHomography一致
+            SiftFeature2D ref, tar;
+            ref.x = pt.xpos;
+            ref.y = pt.ypos;
+            tar.x = pt.match_xpos;
+            tar.y = pt.match_ypos;
+            match_kp_ref.push_back(ref);
+            match_kp_tar.push_back(tar);
         }
     }
     num_match = int(match_kp_ref.size());
@@ -98,5 +146,4 @@ void SiftFeatureBatchGpu::compute_match_batch_cuda(cudaStream_t stream) {
     FreeSiftData(ref_data);
     FreeSiftData(tar_data);
 }
-
 } // namespace StudyCorr
