@@ -16,7 +16,7 @@ namespace StudyCorr_GPU {
         ICGN2D1BatchGpu();
         ~ICGN2D1BatchGpu();
 
-        void prepare_cuda(const float* ref_image, const float* tar_image, int height, int width, const ICGNParam& param = ICGNParam());
+        void prepare_cuda(const float* ref_image, const float* tar_image, int height, int width, const ICGNParam& param = ICGNParam(), cudaStream_t stream = 0);
         void compute_batch_cuda(CudaPOI2D* pois, int N, cudaStream_t stream = 0);
         void release_cuda();
 
@@ -33,7 +33,7 @@ namespace StudyCorr_GPU {
         ICGN2D2BatchGpu();
         ~ICGN2D2BatchGpu();
 
-        void prepare_cuda(const float* ref_image, const float* tar_image, int height, int width, const ICGNParam& param);
+        void prepare_cuda(const float* ref_image, const float* tar_image, int height, int width, const ICGNParam& param, cudaStream_t stream = 0);
         void compute_batch_cuda(CudaPOI2D* pois, int N, cudaStream_t stream = 0);
         void release_cuda();
 

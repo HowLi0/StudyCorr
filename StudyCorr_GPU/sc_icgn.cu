@@ -89,41 +89,7 @@ __global__ void icgn2d_batch_kernel(
     float prevZNCC = -4.0f;
     bool converged = false;
     int iter = 0;
-
-    /**
-     * @brief 迭代优化形函数参数以最大化ZNCC（归一化互相关系数），用于亚像素配准。
-     *
-     * 主要流程如下：
-     * 1. 计算当前形函数参数下的ZNCC和误差向量：
-     *    ZNCC = \frac{\sum_{i} (I_{ref,i} - \bar{I}_{ref}) (I_{tar,i} - \bar{I}_{tar})}
-     *                {\sqrt{\sum_{i} (I_{ref,i} - \bar{I}_{ref})^2} \sqrt{\sum_{i} (I_{tar,i} - \bar{I}_{tar})^2}}
-     *    其中 I_{ref,i} 和 I_{tar,i} 分别为参考图像和目标图像的像素值，\bar{I}_{ref} 和 \bar{I}_{tar} 为各自均值。
-     *
-     * 2. 判断ZNCC收敛条件：
-     *    若 |ZNCC_{current} - ZNCC_{prev}| < threshold，则认为收敛。
-     *
-     * 3. 通过解线性方程组 H * Δp = b 更新形函数参数：
-     *    Δp = H^{-1} * b
-     *    其中 H 为Hessian矩阵，b为误差向量。
-     *
-     * 4. 判断参数更新量的L2范数是否小于阈值：
-     *    若 ||Δp||_2 < threshold，则认为收敛。
-     *
-     * 5. 若达到最大迭代次数仍未收敛，最后一次计算ZNCC，若ZNCC > 0.8，则认为收敛。
-     *
-     * @param ref_image      参考图像数据指针
-     * @param tar_image      目标图像数据指针
-     * @param center_y       子集中心y坐标
-     * @param center_x       子集中心x坐标
-     * @param warpParams     当前形函数参数数组
-     * @param height         图像高度
-     * @param width          图像宽度
-     * @param subsetRadius   子集半径
-     * @param numParams      形函数参数个数
-     * @param maxIterations  最大迭代次数
-     * @param convergenceThreshold 收敛阈值
-     * @param poi            结果输出结构体
-     */
+    // 迭代优化
     for (iter = 0; iter < maxIterations && !converged; iter++) {
             // 合并计算ZNCC和误差向量
             ZNCCAndErrorResult znccError = computeZNCCAndError(
@@ -318,13 +284,14 @@ __global__ void icgn3d1_batch_kernel(
 ICGN2D1BatchGpu::ICGN2D1BatchGpu() : d_ref_image(nullptr), d_tar_image(nullptr) {}
 ICGN2D1BatchGpu::~ICGN2D1BatchGpu() { release_cuda(); }
 
-void ICGN2D1BatchGpu::prepare_cuda(const float* ref_image, const float* tar_image, int h, int w, const ICGNParam& param_) {
+void ICGN2D1BatchGpu::prepare_cuda(const float* ref_image, const float* tar_image, int h, int w, const ICGNParam& param_, cudaStream_t stream) {
     height = h; width = w; param = param_;
     size_t bytes = h * w * sizeof(float);
     cudaMalloc(&d_ref_image, bytes);
     cudaMalloc(&d_tar_image, bytes);
     cudaMemcpy(d_ref_image, ref_image, bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_tar_image, tar_image, bytes, cudaMemcpyHostToDevice);
+    cudaStreamSynchronize(stream);
 }
 
 void ICGN2D1BatchGpu::compute_batch_cuda(CudaPOI2D* pois, int N, cudaStream_t stream) {
@@ -353,13 +320,14 @@ void ICGN2D1BatchGpu::release_cuda() {
 ICGN2D2BatchGpu::ICGN2D2BatchGpu() : d_ref_image(nullptr), d_tar_image(nullptr) {}
 ICGN2D2BatchGpu::~ICGN2D2BatchGpu() { release_cuda(); }
 
-void ICGN2D2BatchGpu::prepare_cuda(const float* ref_image, const float* tar_image, int h, int w, const ICGNParam& param_) {
+void ICGN2D2BatchGpu::prepare_cuda(const float* ref_image, const float* tar_image, int h, int w, const ICGNParam& param_, cudaStream_t stream) {
     height = h; width = w; param = param_;
     size_t bytes = h * w * sizeof(float);
     cudaMalloc(&d_ref_image, bytes);
     cudaMalloc(&d_tar_image, bytes);
     cudaMemcpy(d_ref_image, ref_image, bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_tar_image, tar_image, bytes, cudaMemcpyHostToDevice);
+    cudaStreamSynchronize(stream);
 }
 
 

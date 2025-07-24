@@ -2,6 +2,7 @@
 #include <cudaSift.h>
 #include <cudaImage.h>
 #include <cstring>
+#include "sc_epipolar_search.h"
 
 namespace StudyCorr_GPU {
 
@@ -85,7 +86,8 @@ void SiftFeatureBatchGpu::release() {
     width_ = height_ = 0;
 }
 
-void SiftFeatureBatchGpu::prepare_cuda(const float* ref_img, const float* tar_img, int width, int height, cudaStream_t stream) {
+void SiftFeatureBatchGpu::prepare_cuda(const float *ref_img, const float *tar_img, int width, int height, cudaStream_t stream)
+{
     release();
     width_ = width;
     height_ = height;

@@ -829,13 +829,13 @@ void StudyCorr::DicComputePOIQueue2DCPU(DICconfig& dicConfig)
 //     int height = ref_img.height;
 //     qDebug() << "参考图像尺寸：" << width << "x" << height;
 
-//     // 1. 预分配流
+//     //1. 预分配流
 //     std::vector<cudaStream_t> streams(N);
 //     for (int i = 0; i < N; ++i) {
 //         cudaError_t err = cudaStreamCreate(&streams[i]);
 //         if (err != cudaSuccess) {
 //             qDebug() << "cudaStreamCreate failed:" << cudaGetErrorString(err);
-//             // 销毁已创建的流
+//             //销毁已创建的流
 //             for (int j = 0; j < i; ++j) cudaStreamDestroy(streams[j]);
 //             return;
 //         }
@@ -854,7 +854,7 @@ void StudyCorr::DicComputePOIQueue2DCPU(DICconfig& dicConfig)
 //         }
 //         cudaStream_t stream = streams[i];
 
-//         // SIFT
+//         //SIFT
 //         StudyCorr_GPU::SiftFeatureBatchGpu sift_batch;
 //         sift_batch.prepare_cuda(ref_img.data_ptrs, tar_img.data_ptrs, width, height, stream);
 //         sift_batch.compute_match_batch_cuda(stream);
@@ -862,24 +862,26 @@ void StudyCorr::DicComputePOIQueue2DCPU(DICconfig& dicConfig)
 //         const StudyCorr_GPU::SiftFeature2D* match_kp_ref = sift_batch.match_kp_ref.data();
 //         const StudyCorr_GPU::SiftFeature2D* match_kp_tar = sift_batch.match_kp_tar.data();
 //         int num_match = sift_batch.num_match;
+// 		qDebug() << "SIFT特征计算完成"<< "，匹配点数量：" << num_match;
 
-//         // 仿射
+//         //仿射
 //         StudyCorr_GPU::SiftAffineBatchGpu affine_batch;
 //         affine_batch.set_poi_list(poi_queue_studycorr[i]);
 //         affine_batch.prepare_cuda(match_kp_ref, match_kp_tar, num_match, stream);
 //         affine_batch.compute_batch_cuda(poi_queue_studycorr[i].data(), int(poi_queue_studycorr[i].size()), stream);
 
-//         // ICGN
-//         StudyCorr_GPU::ICGN2D1BatchGpu icgn_batch;
+//         //ICGN
+//         StudyCorr_GPU::ICGN2D2BatchGpu icgn_batch;
 //         StudyCorr_GPU::ICGNParam icgn_param;
-//         icgn_batch.prepare_cuda(ref_img.data_ptrs, tar_img.data_ptrs, height, width, icgn_param);
+//         icgn_batch.prepare_cuda(ref_img.data_ptrs, tar_img.data_ptrs, height, width, icgn_param, stream);
 //         icgn_batch.compute_batch_cuda(poi_queue_studycorr[i].data(), int(poi_queue_studycorr[i].size()), stream);
+// 		qDebug() << "ICGN计算完成" << "，POI数量：" << poi_queue_studycorr[i].size();
 
-//         // 不再同步，让多帧并发
+//         //不再同步，让多帧并发
 //         TOCK(StudgCorr_GPU_Frame);
 //     }
 
-//     // 3. 等所有帧都算完
+//     //3. 等所有帧都算完
 //     for (int i = 0; i < N; ++i) {
 //         cudaStreamSynchronize(streams[i]);
 //         cudaStreamDestroy(streams[i]);
