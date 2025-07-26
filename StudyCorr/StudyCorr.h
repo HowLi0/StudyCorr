@@ -42,7 +42,7 @@ public:
 
 private:
     CalibrationModel currentModel_ = CalibrationModel::Chessboard;
-    Calibration* calibration_ = nullptr;
+    Calibration* calibration_ = nullptr; // 使用指针以便动态分配和释放内存
 };
 
 struct DICconfig
@@ -124,6 +124,7 @@ private:
     ChessCalibration* chessCalibration = nullptr;
     std::vector<std::vector<opencorr::POI2D>> poi_queue_opencorr; // 存储所有的 POI
     std::vector<std::vector<StudyCorr_GPU::CudaPOI2D>> poi_queue_studycorr; // 存储所有的 POI
+    std::vector<std::vector<StudyCorr_GPU::CudaPOI2DS>> poi_queue_studycorr_3d; // 存储所有的 POI    
     //****************************************************工作区控件****************************************************//
     QTabWidget* TabWidget = nullptr;
     QTreeWidget* TreeWidget1 = nullptr;
@@ -197,10 +198,11 @@ private:
     void updateROICalculationPoints();
     void DicComputePOIQueue2DCPU(DICconfig& dicConfig);
     void DicComputePOIQueue2DGPU(DICconfig& dicConfig);
-    void DicComputePOIQueue2DS(DICconfig& dicConfig);
+    void DicComputePOIQueue2DSGPU(DICconfig& dicConfig);
     //void computePOIQueue2DS();
 
     //****************************************************downloaddata****************************************************//
-    void downloadData();
+    void downloadData2D();
+    void downloadData2DS();
 };
 

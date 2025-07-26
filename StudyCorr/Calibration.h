@@ -4,6 +4,7 @@
 #include <opencv2/highgui.hpp>
 #include<QStringList>
 #include<QDebug>
+#include "sc_poi.h"
 
 
 class Calibration
@@ -16,6 +17,7 @@ public:
     virtual bool prefareStereoCalibration() = 0; // 准备双目标定
     virtual void startStereoCalibration() = 0; // 开始双目标定
     virtual cv::Mat computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const = 0; // 重投影矩阵
+    virtual void triangulatePOIsUndistort(std::vector<StudyCorr_GPU::CudaPOI2DS>& pois) = 0; // 三角化 POI 并去畸变
     virtual void drawCornersAndAxes(cv::Mat& img, const std::vector<cv::Point2f>& corners, cv::Size boardSize, bool found) = 0; // 绘制角点和坐标轴
 };
 
@@ -31,6 +33,7 @@ public:
 	bool prefareStereoCalibration() override;//准备双目标定
 	void startStereoCalibration() override;//开始双目标定
     cv::Mat computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const override; // 重投影矩阵
+    void triangulatePOIsUndistort(std::vector<StudyCorr_GPU::CudaPOI2DS>& pois) override;
     void drawCornersAndAxes(cv::Mat& img, const std::vector<cv::Point2f>& corners, cv::Size boardSize, bool found) override;
     std::vector<cv::Mat> img1_frames;//用于储存drawCornersAndAxes绘制的图片
     std::vector<cv::Mat> img2_frames;
@@ -58,7 +61,8 @@ public:
     void startMonocularCompute() override;//开始单目标定
     bool prefareStereoCalibration() override;//准备双目标定
     void startStereoCalibration() override;//开始双目标定
-    cv::Mat computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const override;//重投影矩阵
+    cv::Mat computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const override; // 重投影矩阵
+    void triangulatePOIsUndistort(std::vector<StudyCorr_GPU::CudaPOI2DS>& pois) override;
     void drawCornersAndAxes(cv::Mat& img, const std::vector<cv::Point2f>& corners, cv::Size boardSize, bool found) override; // 绘制角点和坐标轴
     std::vector<cv::Mat> img1_frames;//用于储存drawCornersAndAxes绘制的图片
     std::vector<cv::Mat> img2_frames;

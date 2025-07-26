@@ -1,7 +1,4 @@
 #include "sc_icgn.h"
-#include <cuda_runtime.h>
-#include <cassert>
-#include"sc_icgn_device_function.cuh"
 
 
 namespace StudyCorr_GPU {

@@ -1,5 +1,4 @@
 #include "sc_epipolar_search.h"
-#include"sc_icgn_device_function.cuh"
 
 namespace StudyCorr_GPU
 { 
@@ -83,6 +82,7 @@ namespace StudyCorr_GPU
 
         poi.deformation.u = best_du;
         poi.deformation.v = best_dv;
+        poi.result.zncc = bestZNCC;
     }
 
 
@@ -104,6 +104,9 @@ namespace StudyCorr_GPU
     {
         this->height = height;
         this->width = width;
+
+        // 先释放之前分配的内存（防止内存泄漏）
+        release_cuda();
 
         // 分配设备内存
         cudaMalloc(&d_ref_image, height * width * sizeof(float));
@@ -139,11 +142,8 @@ namespace StudyCorr_GPU
         // 将结果从设备复制回主机
         cudaMemcpyAsync(pois, d_pois, N * sizeof(CudaPOI2D), cudaMemcpyDeviceToHost, stream);
 
-        // 释放设备内存
-        cudaFree(d_pois);
-        cudaFree(d_F);
-        cudaFree(d_ref_image);
-        cudaFree(d_tar_image);
+        // 释放本 batch 局部内存
+        cudaFree(d_pois); // 只释放 d_pois，d_ref_image/d_tar_image/d_F 由类析构/prepare/release 统一管理
     }
 
     void EpipolarSearchGpu::release_cuda()

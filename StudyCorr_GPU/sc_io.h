@@ -89,6 +89,7 @@ namespace StudyCorr_GPU
 
 		//save results of stereo DIC to csv table
 		void saveTable2DS(std::vector<POI2DS>& poi_queue);
+		void saveTableCuda2DS(std::vector<CudaPOI2DS>& poi_queue);
 
 		//variable could be referred to enum OutputVariable
 		void saveMap2DS(std::vector<POI2DS>& poi_queue, OutputVariable variable);

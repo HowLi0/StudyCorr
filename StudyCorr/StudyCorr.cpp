@@ -69,7 +69,7 @@ void StudyCorr::SetupUi(int CalibrationIndex, int ComputeIndex)
 	// 连接信号和槽
 	connect(NewAction, &QAction::triggered, this, &StudyCorr::CreateNewProject);
 	connect(OpenAction, &QAction::triggered, this, &StudyCorr::OpenExistingProject);
-	connect(DataMenu, &QMenu::aboutToShow, this, &StudyCorr::downloadData);
+	connect(DataMenu, &QMenu::aboutToShow, this, &StudyCorr::downloadData2DS);
 
 	//****************************************************工具栏****************************************************//
 	//添加工具栏
@@ -461,10 +461,10 @@ void StudyCorr::ComputeButtonClicked(int ComputeIndex)
 	// Connect accepted signal to onOkClicked slot
 	connect(dialog, &ComputeDialog::accepted,  [=]() {
 		this->ComputeOKButtonClicked();
-		QPixmap ref_img = QPixmap(QString(LeftComputeFilePath[0])); // 参考图像
-		//QPixmap tar_img = QPixmap(QString(RightComputeFilePath[currentFrameIndex])); // 目标图像
+		QPixmap ref_img = QPixmap(QString(LeftComputeFilePath[currentFrameIndex])); // 参考图像
+		QPixmap tar_img = QPixmap(QString(RightComputeFilePath[currentFrameIndex])); // 目标图像
 		qDebug() << "ref_img: " << LeftComputeFilePath;
-		displayImages(ref_img);
+		displayImages(ref_img, tar_img);
 
 	});
 
@@ -593,7 +593,8 @@ void StudyCorr::ComputeToolBar()
 	connect(subSizeSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), this, &StudyCorr::updateROICalculationPoints);
 	connect(StartComputeButton, &QAction::triggered, this, [=]() {
 		//this->DicComputePOIQueue2DCPU(dicConfig);
-		this->DicComputePOIQueue2DGPU(dicConfig);
+		//this->DicComputePOIQueue2DGPU(dicConfig);
+		this->DicComputePOIQueue2DSGPU(dicConfig);
 	});
 
 	connect(CalibrationButton, &QAction::triggered, [=]() {
@@ -921,7 +922,7 @@ void StudyCorr::DicComputePOIQueue2DGPU(DICconfig &dicConfig)
 
         // SIFT特征
         StudyCorr_GPU::SiftFeatureBatchGpu sift_batch;
-        sift_batch.prepare_cuda(ref_img.data_ptrs, tar_img.data_ptrs, width, height, stream);
+        sift_batch.prepare_cuda(ref_img.data_ptrs, tar_img.data_ptrs, height, width, stream);
         sift_batch.compute_match_batch_cuda(stream);
         cudaStreamSynchronize(stream); // 必须同步，确保安全
 
@@ -957,10 +958,195 @@ void StudyCorr::DicComputePOIQueue2DGPU(DICconfig &dicConfig)
     qDebug() << "计算完成。";
 }
 
+void StudyCorr::DicComputePOIQueue2DSGPU(DICconfig &dicConfig)
+{
+	dicConfig.stepSize = stepSizeSpinBox->value();
+    dicConfig.subSize = subSizeSpinBox->value();
+    const int N = dicConfig.LeftComputeFilePath.size();
+    StudyCorr_GPU::Image2D left_ref_img(dicConfig.LeftComputeFilePath[0].toStdString());
 
-void StudyCorr::downloadData()	
+    int width = left_ref_img.width;
+    int height = left_ref_img.height;
+    qDebug() << "参考图像尺寸：" << width << "x" << height;
+
+    cudaStream_t stream;
+    cudaError_t err = cudaStreamCreate(&stream);
+    if (err != cudaSuccess) {
+        qDebug() << "cudaStreamCreate failed:" << cudaGetErrorString(err);
+        return;
+    }
+
+	poi_queue_studycorr_3d.clear();
+	poi_queue_studycorr_3d.resize(N);
+	#pragma omp parallel for
+	for (int i = 0; i < N; ++i) {
+		poi_queue_studycorr_3d[i].resize(poi_queue_studycorr[i].size());
+	}
+
+
+    TICK(StudgCorr_GPU);
+    for (int i = 0; i < N; ++i)
+    {
+        TICK(StudgCorr_GPU_Frame);
+
+		StudyCorr_GPU::Image2D left_tar_img(dicConfig.LeftComputeFilePath[i].toStdString()); // 左图
+        StudyCorr_GPU::Image2D right_tar_img(dicConfig.RightComputeFilePath[i].toStdString()); // 右图
+
+		if (!left_tar_img.data_ptrs || !right_tar_img.data_ptrs) {
+			qDebug() << "第" << i << "帧图像加载失败";
+			return;
+		}
+
+        // SIFT特征
+        auto sift_batch = std::make_unique<StudyCorr_GPU::SiftFeatureBatchGpu>();
+        sift_batch->prepare_cuda(left_ref_img.data_ptrs, left_tar_img.data_ptrs, height, width, stream);
+        sift_batch->compute_match_batch_cuda(stream);
+        cudaStreamSynchronize(stream); // 必须同步，确保安全
+
+        const StudyCorr_GPU::SiftFeature2D* match_kp_ref = sift_batch->match_kp_ref.data();
+        const StudyCorr_GPU::SiftFeature2D* match_kp_tar = sift_batch->match_kp_tar.data();
+        int num_match = sift_batch->num_match;
+		qDebug() << "SIFT特征计算完成"<< "，匹配点数量：" << num_match;
+
+        // 仿射
+        auto affine_batch = std::make_unique<StudyCorr_GPU::SiftAffineBatchGpu>();
+        affine_batch->set_poi_list(poi_queue_studycorr[i]);
+        affine_batch->prepare_cuda(match_kp_ref, match_kp_tar, num_match, stream);
+        affine_batch->compute_batch_cuda(poi_queue_studycorr[i].data(), int(poi_queue_studycorr[i].size()), stream);
+        cudaStreamSynchronize(stream);
+		qDebug() << "仿射变换计算完成" << "，POI数量：" << poi_queue_studycorr[i].size();
+
+        // ICGN
+        auto icgn1_batch = std::make_unique<StudyCorr_GPU::ICGN2D2BatchGpu>();
+        StudyCorr_GPU::ICGNParam icgn1_param;
+        icgn1_batch->prepare_cuda(left_ref_img.data_ptrs, left_tar_img.data_ptrs, height, width, icgn1_param);
+        icgn1_batch->compute_batch_cuda(poi_queue_studycorr[i].data(), int(poi_queue_studycorr[i].size()), stream);
+		qDebug() << "ICGN计算完成" << "，POI数量：" << poi_queue_studycorr[i].size();
+        cudaStreamSynchronize(stream);
+
+		std::vector<StudyCorr_GPU::CudaPOI2D> poi_queue_tar;
+   		poi_queue_tar.resize(poi_queue_studycorr[i].size());
+		#pragma omp parallel for
+		for (int j = 0; j < poi_queue_studycorr[i].size(); ++j) {
+			poi_queue_tar[j].x = poi_queue_studycorr[i][j].x;
+			poi_queue_tar[j].y = poi_queue_studycorr[i][j].y;
+			poi_queue_studycorr_3d[i][j].left_coor.x = poi_queue_studycorr[i][j].x + poi_queue_studycorr[i][j].deformation.u;
+			poi_queue_studycorr_3d[i][j].left_coor.y = poi_queue_studycorr[i][j].y + poi_queue_studycorr[i][j].deformation.v;
+			poi_queue_studycorr_3d[i][j].result.r1t1_zncc = poi_queue_studycorr[i][j].result.zncc;
+		}
+
+		// //立体匹配
+		// //epipolar_search
+		// auto epipolar_search = std::make_unique<StudyCorr_GPU::EpipolarSearchGpu>(dicConfig.subSize, 5, chessCalibration->F);
+		// epipolar_search->prepare_cuda(left_tar_img.data_ptrs, right_tar_img.data_ptrs, height, width, stream);
+		// epipolar_search->compute_batch_cuda(poi_queue_tar.data(), int(poi_queue_tar.size()), stream);
+		// cudaStreamSynchronize(stream); // 必须同步，确保安全
+
+		// 使用SIFT做立体匹配
+        auto sift_batch2 = std::make_unique<StudyCorr_GPU::SiftFeatureBatchGpu>();
+        sift_batch2->prepare_cuda(left_ref_img.data_ptrs, right_tar_img.data_ptrs, height, width, stream);
+        sift_batch2->compute_match_batch_cuda(stream);
+        cudaStreamSynchronize(stream); // 必须同步，确保安全
+
+        const StudyCorr_GPU::SiftFeature2D* match_kp_ref2 = sift_batch2->match_kp_ref.data();
+        const StudyCorr_GPU::SiftFeature2D* match_kp_tar2 = sift_batch2->match_kp_tar.data();
+        int num_match2 = sift_batch2->num_match;
+		qDebug() << "SIFT特征计算完成"<< "，匹配点数量：" << num_match2;
+
+        // 仿射
+        auto affine_batch2 = std::make_unique<StudyCorr_GPU::SiftAffineBatchGpu>();
+        affine_batch2->set_poi_list(poi_queue_tar);
+        affine_batch2->prepare_cuda(match_kp_ref2, match_kp_tar2, num_match2, stream);
+        affine_batch2->compute_batch_cuda(poi_queue_tar.data(), int(poi_queue_tar.size()), stream);
+        cudaStreamSynchronize(stream);
+		qDebug() << "仿射变换计算完成" << "，POI数量：" << poi_queue_tar.size();
+
+		auto icgn2_batch = std::make_unique<StudyCorr_GPU::ICGN2D2BatchGpu>();
+		StudyCorr_GPU::ICGNParam icgn2_param;
+		icgn2_batch->prepare_cuda(left_ref_img.data_ptrs, right_tar_img.data_ptrs, height, width, icgn2_param);
+		icgn2_batch->compute_batch_cuda(poi_queue_tar.data(), int(poi_queue_tar.size()), stream);
+		qDebug() << "ICGN计算完成" << "，POI数量：" << poi_queue_tar.size();
+		cudaStreamSynchronize(stream);
+
+		//计算3D reconstruction coordinates
+		#pragma omp parallel for
+		for (int j = 0; j < poi_queue_tar.size(); ++j) {
+			poi_queue_studycorr_3d[i][j].right_coor.x = poi_queue_tar[j].x + poi_queue_tar[j].deformation.u;
+			poi_queue_studycorr_3d[i][j].right_coor.y = poi_queue_tar[j].y + poi_queue_tar[j].deformation.v;
+			poi_queue_studycorr_3d[i][j].result.r1t2_zncc = poi_queue_tar[j].result.zncc;
+		}
+		err = cudaDeviceSynchronize();
+		if (err != cudaSuccess) {
+			printf("cudaDeviceSynchronize failed: %s\n", cudaGetErrorString(err));
+			return;
+		}
+		chessCalibration->triangulatePOIsUndistort(poi_queue_studycorr_3d[i]);
+		qDebug() << "第" << i << "张图：3D reconstruction coordinates计算完成" << "，POI数量：" << poi_queue_studycorr_3d[i].size();
+
+        TOCK(StudgCorr_GPU_Frame);
+    }
+    cudaStreamDestroy(stream);
+		#pragma omp parallel for
+		for (int i = 0; i < N; ++i) {
+			for (int j = 0; j < poi_queue_studycorr_3d[i].size(); ++j) {
+				poi_queue_studycorr_3d[i][j].deformation.u = poi_queue_studycorr_3d[i][j].coor3D.x - poi_queue_studycorr_3d[0][j].coor3D.x;
+				poi_queue_studycorr_3d[i][j].deformation.v = poi_queue_studycorr_3d[i][j].coor3D.y - poi_queue_studycorr_3d[0][j].coor3D.y;
+				poi_queue_studycorr_3d[i][j].deformation.w = poi_queue_studycorr_3d[i][j].coor3D.z - poi_queue_studycorr_3d[0][j].coor3D.z;
+			}
+		}
+		TOCK(StudgCorr_GPU);
+		qDebug() << "计算完成。";
+}
+
+void StudyCorr::downloadData2D()	
 {
 	// 使用 QFileDialog 选择文件夹路径
+	QString folder = QFileDialog::getExistingDirectory(this, "选择数据下载目录");
+
+	if (!folder.isEmpty()) {
+		QDir dir(folder);
+
+		// 检查目录是否存在，如果不存在则创建
+		if (!dir.exists()) {
+			if (!dir.mkpath(folder)) {
+				QMessageBox::critical(this, "错误", "无法创建目录！");
+				return;
+			}
+		}
+
+		// 在这里添加下载数据的逻辑
+		StudyCorr_GPU::Image2D ref_img(dicConfig.LeftComputeFilePath[0].toStdString());
+		std::string delimiter = ",";
+		int ref_height = ref_img.height;
+		int ref_width = ref_img.width;
+
+		#pragma omp parallel for
+		for (int i = 0; i < dicConfig.LeftComputeFilePath.size(); ++i)
+		{
+			std::string tempfile_path = dicConfig.LeftComputeFilePath[i].toStdString();
+			// 获取文件名（不带路径）
+			QString qfileName = QFileInfo(QString::fromStdString(tempfile_path)).baseName();
+			// 拼接保存路径
+			QString savePath = QDir(folder).filePath(qfileName + ".csv");
+			std::string file_path = savePath.toStdString();
+
+			StudyCorr_GPU::IO2D in_out;	
+			in_out.setDelimiter(delimiter);
+			in_out.setHeight(ref_height);
+			in_out.setWidth(ref_width);
+			in_out.setPath(file_path);
+			in_out.saveTableCuda2D(poi_queue_studycorr[i]);
+		}
+		QMessageBox::information(this, "成功", "数据下载成功！");
+	}
+	else {
+		QMessageBox::warning(this, "警告", "未选择任何目录！");
+	}
+}
+
+void StudyCorr::downloadData2DS()
+{
+		// 使用 QFileDialog 选择文件夹路径
 	QString folder = QFileDialog::getExistingDirectory(this, "选择数据下载目录");
 
 	if (!folder.isEmpty()) {
@@ -995,7 +1181,7 @@ void StudyCorr::downloadData()
 			in_out.setHeight(ref_height);
 			in_out.setWidth(ref_width);
 			in_out.setPath(file_path);
-			in_out.saveTableCuda2D(poi_queue_studycorr[i]);
+			in_out.saveTableCuda2DS(poi_queue_studycorr_3d[i]);
 		}
 		QMessageBox::information(this, "成功", "数据下载成功！");
 	}

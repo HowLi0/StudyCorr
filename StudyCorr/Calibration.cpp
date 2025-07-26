@@ -113,6 +113,7 @@
     }
 
 
+
     bool ChessCalibration::prefareStereoCalibration()
     {
         if (chessPathLeft.size() != chessPathRight.size()) {
@@ -175,7 +176,7 @@
 
         // 1. 预筛选：对每一帧单独进行单目标定，剔除重投影误差大的帧
         std::vector<int> validIndices;
-        const double MAX_REPROJ_ERROR = 0.1; // 重投影误差阈值
+        const double MAX_REPROJ_ERROR = 0.2; // 重投影误差阈值
         
         // 存储有效帧的角点数据
         std::vector<std::vector<cv::Point3f>> validObjectPoints;
@@ -345,15 +346,53 @@
         std::cout << "Rotation Matrix:" << std::endl << R << std::endl;
         std::cout << "Translation Vector:" << std::endl << T.t() << std::endl;
         
-        // 计算重投影矩阵
-        cv::Mat projMatrix1 = computeProjMatrix(R, T, cameraMatrix1_final);
-        cv::Mat projMatrix2 = computeProjMatrix(R, T, cameraMatrix2_final);
-        this->projMatrixVec1.push_back(projMatrix1);
-        this->projMatrixVec2.push_back(projMatrix2);
-        std::cout << "Left Projection Matrix:" << std::endl << projMatrix1 << std::endl;
-        std::cout << "Right Projection Matrix:" << std::endl << projMatrix2 << std::endl;
     }
 
+    void ChessCalibration::triangulatePOIsUndistort(std::vector<StudyCorr_GPU::CudaPOI2DS> &pois)
+    {
+        if (pois.empty()) return;
+
+        // 正确方式：归一化相机坐标系下的投影矩阵
+        cv::Mat P1 = cv::Mat::zeros(3, 4, CV_64F);
+        cv::Mat eye = cv::Mat::eye(3, 3, CV_64F);
+        eye.copyTo(P1(cv::Rect(0, 0, 3, 3))); // P1 = [I|0]
+
+        cv::Mat P2 = cv::Mat::zeros(3, 4, CV_64F);
+        this->R.copyTo(P2(cv::Rect(0, 0, 3, 3))); // P2 = [R|T]
+        this->T.copyTo(P2(cv::Rect(3, 0, 1, 3)));
+
+        std::vector<cv::Point2f> pts_left, pts_right;
+        for (const auto& poi : pois) {
+            pts_left.emplace_back(poi.left_coor.x, poi.left_coor.y);
+            pts_right.emplace_back(poi.right_coor.x, poi.right_coor.y);
+        }
+
+        std::vector<cv::Point2f> pts_left_ud, pts_right_ud;
+        cv::undistortPoints(pts_left, pts_left_ud, cameraMatrix1, distCoeffs1);
+        cv::undistortPoints(pts_right, pts_right_ud, cameraMatrix2, distCoeffs2);
+
+        cv::Mat pts1(2, pts_left_ud.size(), CV_64F), pts2(2, pts_right_ud.size(), CV_64F);
+        for (size_t i = 0; i < pts_left_ud.size(); ++i) {
+            pts1.at<double>(0, i) = pts_left_ud[i].x;
+            pts1.at<double>(1, i) = pts_left_ud[i].y;
+            pts2.at<double>(0, i) = pts_right_ud[i].x;
+            pts2.at<double>(1, i) = pts_right_ud[i].y;
+        }
+
+        cv::Mat points4D;
+        cv::triangulatePoints(P1, P2, pts1, pts2, points4D);
+
+        for (int i = 0; i < points4D.cols; ++i) {
+            double w = points4D.at<double>(3, i);
+            if (fabs(w) < 1e-8) { pois[i].coor3D = {0,0,0}; continue; }
+            double X = points4D.at<double>(0, i) / w;
+            double Y = points4D.at<double>(1, i) / w;
+            double Z = points4D.at<double>(2, i) / w;
+            pois[i].coor3D.x = X;
+            pois[i].coor3D.y = Y;
+            pois[i].coor3D.z = Z;
+        }
+    }
 
     void ChessCalibration::drawCornersAndAxes(cv::Mat& img, const std::vector<cv::Point2f>& corners, cv::Size boardSize, bool found)
     {
@@ -483,15 +522,6 @@ void CircleCalibration::startMonocularCompute()
     std::cout << "compute is over" << std::endl;
 }
 
-cv::Mat CircleCalibration::computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const
-{
-    // Construct projection matrix for Camera : P = K * [R | T]
-    cv::Mat projMatrix = cv::Mat::zeros(3, 4, CV_64F);
-    cv::Mat RT;
-    cv::hconcat(R, T, RT);  // Combine R and T into a 3x4 matrix
-    projMatrix = cameraMatrix * RT;
-    return projMatrix;
-}
 
 void CircleCalibration::drawCornersAndAxes(cv::Mat& img, const std::vector<cv::Point2f>& corners, cv::Size boardSize, bool found)
 {
@@ -681,11 +711,60 @@ void CircleCalibration::startStereoCalibration()
     std::cout << "Translation Vector:\n" << this->T << std::endl;
     std::cout << "Essential Matrix:\n" << this->E << std::endl;
     std::cout << "Fundamental Matrix:\n" << this->F << std::endl;
-    // 计算重投影矩阵
-    cv::Mat projMatrix1 = computeProjMatrix(R, T, cameraMatrix1_final);
-    cv::Mat projMatrix2 = computeProjMatrix(R, T, cameraMatrix2_final);
-    this->projMatrixVec1.push_back(projMatrix1);
-    this->projMatrixVec2.push_back(projMatrix2);
-    std::cout << "Left Projection Matrix:\n" << projMatrix1 << std::endl;
-    std::cout << "Right Projection Matrix:\n" << projMatrix2 << std::endl;
 }
+
+    cv::Mat CircleCalibration::computeProjMatrix(const cv::Mat R, const cv::Mat T, const cv::Mat cameraMatrix) const
+    {
+        // Construct projection matrix for Camera : P = K * [R | T]
+        cv::Mat projMatrix = cv::Mat::zeros(3, 4, CV_64F);
+        cv::Mat RT;
+        cv::hconcat(R, T, RT);  // Combine R and T into a 3x4 matrix
+        projMatrix = cameraMatrix * RT;
+        return projMatrix;
+    }
+
+    void  CircleCalibration::triangulatePOIsUndistort(std::vector<StudyCorr_GPU::CudaPOI2DS> &pois)
+    {
+        if (pois.empty()) return;
+
+        // 正确方式：归一化相机坐标系下的投影矩阵
+        cv::Mat P1 = cv::Mat::zeros(3, 4, CV_64F);
+        cv::Mat eye = cv::Mat::eye(3, 3, CV_64F);
+        eye.copyTo(P1(cv::Rect(0, 0, 3, 3))); // P1 = [I|0]
+
+        cv::Mat P2 = cv::Mat::zeros(3, 4, CV_64F);
+        this->R.copyTo(P2(cv::Rect(0, 0, 3, 3))); // P2 = [R|T]
+        this->T.copyTo(P2(cv::Rect(3, 0, 1, 3)));
+
+        std::vector<cv::Point2f> pts_left, pts_right;
+        for (const auto& poi : pois) {
+            pts_left.emplace_back(poi.left_coor.x, poi.left_coor.y);
+            pts_right.emplace_back(poi.right_coor.x, poi.right_coor.y);
+        }
+
+        std::vector<cv::Point2f> pts_left_ud, pts_right_ud;
+        cv::undistortPoints(pts_left, pts_left_ud, cameraMatrix1, distCoeffs1);
+        cv::undistortPoints(pts_right, pts_right_ud, cameraMatrix2, distCoeffs2);
+
+        cv::Mat pts1(2, pts_left_ud.size(), CV_64F), pts2(2, pts_right_ud.size(), CV_64F);
+        for (size_t i = 0; i < pts_left_ud.size(); ++i) {
+            pts1.at<double>(0, i) = pts_left_ud[i].x;
+            pts1.at<double>(1, i) = pts_left_ud[i].y;
+            pts2.at<double>(0, i) = pts_right_ud[i].x;
+            pts2.at<double>(1, i) = pts_right_ud[i].y;
+        }
+
+        cv::Mat points4D;
+        cv::triangulatePoints(P1, P2, pts1, pts2, points4D);
+
+        for (int i = 0; i < points4D.cols; ++i) {
+            double w = points4D.at<double>(3, i);
+            if (fabs(w) < 1e-8) { pois[i].coor3D = {0,0,0}; continue; }
+            double X = points4D.at<double>(0, i) / w;
+            double Y = points4D.at<double>(1, i) / w;
+            double Z = points4D.at<double>(2, i) / w;
+            pois[i].coor3D.x = X;
+            pois[i].coor3D.y = Y;
+            pois[i].coor3D.z = Z;
+        }
+    }

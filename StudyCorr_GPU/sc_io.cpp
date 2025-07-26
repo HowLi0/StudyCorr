@@ -724,7 +724,69 @@ namespace StudyCorr_GPU
 		file_out.close();
 	}
 
-	void IO2D::saveMap2DS(std::vector<POI2DS>& poi_queue, OutputVariable  variable)
+    void IO2D::saveTableCuda2DS(std::vector<CudaPOI2DS> &poi_queue)
+    {
+		std::ofstream file_out(file_path);
+		file_out.setf(std::ios::fixed);
+		file_out << std::setprecision(8);
+
+		if (file_out.is_open())
+		{
+			file_out << "Left_x" << delimiter;
+			file_out << "Left_y" << delimiter;
+
+			file_out << "Right_x" << delimiter;
+			file_out << "Right_y" << delimiter;
+
+			file_out << "X" << delimiter;
+			file_out << "Y" << delimiter;
+			file_out << "Z" << delimiter;
+
+			file_out << "u" << delimiter;
+			file_out << "v" << delimiter;
+			file_out << "w" << delimiter;
+
+			file_out << "r1r2 ZNCC" << delimiter;
+			file_out << "r1t1 ZNCC" << delimiter;
+			file_out << "r1t2 ZNCC" << delimiter;
+
+			file_out << "exx" << delimiter;
+			file_out << "eyy" << delimiter;
+			file_out << "ezz" << delimiter;
+			file_out << "exy" << delimiter;
+			file_out << "eyz" << delimiter;
+			file_out << "ezx" << delimiter;
+
+			file_out << std::endl;
+
+			for (std::vector<CudaPOI2DS>::iterator iter = poi_queue.begin(); iter != poi_queue.end(); iter++)
+			{
+				file_out << iter->left_coor.x << delimiter;
+				file_out << iter->left_coor.y << delimiter;
+				file_out << iter->right_coor.x << delimiter;
+				file_out << iter->right_coor.y << delimiter;
+				file_out << iter->coor3D.x << delimiter;
+				file_out << iter->coor3D.y << delimiter;
+				file_out << iter->coor3D.z << delimiter;
+				file_out << iter->deformation.u << delimiter;
+				file_out << iter->deformation.v << delimiter;
+				file_out << iter->deformation.w << delimiter;
+				file_out << iter->result.r1r2_zncc << delimiter;
+				file_out << iter->result.r1t1_zncc << delimiter;
+				file_out << iter->result.r1t2_zncc << delimiter;
+				file_out << iter->strain.exx << delimiter;
+				file_out << iter->strain.eyy << delimiter;
+				file_out << iter->strain.ezz << delimiter;
+				file_out << iter->strain.exy << delimiter;
+				file_out << iter->strain.eyz << delimiter;
+				file_out << iter->strain.ezx << delimiter;
+				file_out << std::endl;
+			}
+		}
+		file_out.close();
+    }
+
+    void IO2D::saveMap2DS(std::vector<POI2DS>& poi_queue, OutputVariable  variable)
 	{
 		int height = getHeight();
 		int width = getWidth();

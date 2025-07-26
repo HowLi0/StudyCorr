@@ -86,7 +86,7 @@ void SiftFeatureBatchGpu::release() {
     width_ = height_ = 0;
 }
 
-void SiftFeatureBatchGpu::prepare_cuda(const float *ref_img, const float *tar_img, int width, int height, cudaStream_t stream)
+void SiftFeatureBatchGpu::prepare_cuda(const float *ref_img, const float *tar_img, int height, int width, cudaStream_t stream)
 {
     release();
     width_ = width;
@@ -108,7 +108,7 @@ void SiftFeatureBatchGpu::compute_match_batch_cuda(cudaStream_t stream) {
     CudaImage ref_img;
     ref_img.Allocate(width_, height_, iAlignUp(width_, 128), false, d_ref_img_);
     InitCuda(0);
-    ExtractSift(ref_data, ref_img, 5, 1.0, 3.0f, 0.0f, false, nullptr);
+    ExtractSift(ref_data, ref_img, 5, 1.0, 2.0f, 0.0f, false, nullptr);
     cudaStreamSynchronize(stream);
 
     // --- 检测目标图特征点 ---
@@ -116,15 +116,15 @@ void SiftFeatureBatchGpu::compute_match_batch_cuda(cudaStream_t stream) {
     InitSiftData(tar_data, max_feat_, true, true);
     CudaImage tar_img;
     tar_img.Allocate(width_, height_, iAlignUp(width_, 128), false, d_tar_img_);
-    ExtractSift(tar_data, tar_img, 5, 1.0, 3.0f, 0.0f, false, nullptr);
+    ExtractSift(tar_data, tar_img, 5, 1.0, 2.0f, 0.0f, false, nullptr);
     cudaStreamSynchronize(stream);
 
     // --- CUDA SIFT批量匹配 ---
     MatchSiftData(ref_data, tar_data);
     float homography[9];
     int numMatches;
-    FindHomography(ref_data, homography, &numMatches, 10000, 0.00f, 0.80f, 5.0);
-    int numFit = ImproveHomography(ref_data, homography, 5, 0.00f, 0.80f, 3.0);
+    FindHomography(ref_data, homography, &numMatches, 10000, 0.00f, 0.90f, 8.0);
+    int numFit = ImproveHomography(ref_data, homography, 5, 0.00f, 0.90f, 8.0);
     std::cout << "Number of original features: " <<  ref_data.numPts << " " << tar_data.numPts << std::endl;
     std::cout << "Number of matching features: " << numFit << " " << numMatches << " " << 100.0f*numFit/std::min(ref_data.numPts, tar_data.numPts) << "% " << 1 << " " << 3.0 << std::endl;
     
@@ -133,7 +133,7 @@ void SiftFeatureBatchGpu::compute_match_batch_cuda(cudaStream_t stream) {
     match_kp_tar.clear();
     for (int i = 0; i < ref_data.numPts; ++i) {
         const SiftPoint& pt = ref_data.h_data[i];
-        if (pt.match >= 0 && pt.match_error < 3.0) { // thresh与ImproveHomography一致
+        if (pt.match >= 0 && pt.match_error < 8.0) { // thresh与ImproveHomography一致
             SiftFeature2D ref, tar;
             ref.x = pt.xpos;
             ref.y = pt.ypos;

@@ -93,7 +93,7 @@ __device__ __forceinline__ void WarpPoint(float x, float y, const float* warpPar
 
 
 // 高精度QR分解求解线性方程组 - 更稳定的数值方法
-__device__ bool solveLinearSystemQR(const float* A, const float* b, float* x, int n) {
+__device__ __inline__ bool solveLinearSystemQR(const float* A, const float* b, float* x, int n) {
     // 复制矩阵到局部内存
     float Q[144]; // 最大12x12矩阵 - 正交矩阵
     float R[144]; // 最大12x12矩阵 - 上三角矩阵
@@ -173,7 +173,7 @@ __device__ bool solveLinearSystemQR(const float* A, const float* b, float* x, in
 }
 
 // 添加正则化的QR分解以处理病态矩阵
-__device__ bool solveLinearSystemRegularizedQR(const float* A, const float* b, float* x, int n) {
+__device__ __inline__ bool solveLinearSystemRegularizedQR(const float* A, const float* b, float* x, int n) {
     // 复制矩阵并添加Tikhonov正则化
     float ARegularized[144];
     float regularization = 1e-8f; // 正则化参数
@@ -192,7 +192,7 @@ __device__ bool solveLinearSystemRegularizedQR(const float* A, const float* b, f
 }
 
 // 主要的线性系统求解函数
-__device__ bool solveLinearSystem(const float* A, const float* b, float* x, int n) {
+__device__ __inline__ bool solveLinearSystem(const float* A, const float* b, float* x, int n) {
     // 首先尝试标准QR分解
     if (solveLinearSystemQR(A, b, x, n)) {
         return true;
@@ -204,7 +204,7 @@ __device__ bool solveLinearSystem(const float* A, const float* b, float* x, int 
 
 
 // shape函数求导工具
-__device__ float getShapeFn(int paramIdx, int numParams, float gradX, float gradY, float x, float y) {
+__device__ __inline__ float getShapeFn(int paramIdx, int numParams, float gradX, float gradY, float x, float y) {
     if (paramIdx < 0) return 0.0f;
     switch (paramIdx) {
         case 0: return gradX; // du
@@ -226,7 +226,7 @@ __device__ float getShapeFn(int paramIdx, int numParams, float gradX, float grad
 }
 
  // 预计算Hessian矩阵，与CPU版本完全一致
-__device__ void computehessian(const float* ref_image, int subsetRadius, int imageHeight, int imageWidth,
+__device__ __inline__ void computehessian(const float* ref_image, int subsetRadius, int imageHeight, int imageWidth,
                                       int centerY, int centerX, int numParams, float* hessian) 
  {
     for (int i = 0; i < numParams; i++) 
@@ -265,7 +265,7 @@ __device__ void computehessian(const float* ref_image, int subsetRadius, int ima
  }   
 
 
-__device__ ZNCCAndErrorResult computeZNCCAndError(
+__device__ __inline__ ZNCCAndErrorResult computeZNCCAndError(
     const float* refImage, const float* tarImage,
     float centerY, float centerX, const float* warpParams,
     int imageHeight, int imageWidth, int subsetRadius, int numParams)
@@ -345,7 +345,7 @@ __device__ ZNCCAndErrorResult computeZNCCAndError(
 
 
 //******************************************************icgn3D******************************************************/
-__device__ void computeSobelGradients3D(const float* image, int x, int y, int z,
+__device__ __inline__ void computeSobelGradients3D(const float* image, int x, int y, int z,
                                      int width, int height, int depth,
                                      float* grad_x, float* grad_y, float* grad_z)
 {
@@ -386,7 +386,7 @@ __device__ void computeSobelGradients3D(const float* image, int x, int y, int z,
 
 
 // 三维shape function查表
-__device__ float getShapeFn3D(int paramIdx, int numParams, float gradX, float gradY, float gradZ, float x, float y, float z) {
+__device__ __inline__ float getShapeFn3D(int paramIdx, int numParams, float gradX, float gradY, float gradZ, float x, float y, float z) {
     // 3D 12参数顺序: u, ux, uy, uz, v, vx, vy, vz, w, wx, wy, wz
     switch (paramIdx) {
         case 0:  return gradX;                // du
@@ -406,7 +406,7 @@ __device__ float getShapeFn3D(int paramIdx, int numParams, float gradX, float gr
 }
 
 // 三维Hessian预计算
-__device__ void computehessian3d(
+__device__ __inline__ void computehessian3d(
     const float* ref_image,
     int subsetRadius,
     int imageWidth,
@@ -544,7 +544,7 @@ __device__ __forceinline__ float TrilinearInterpolation(
 }
 
 
-__device__ ZNCCAndErrorResult computeZNCCAndError3D(
+__device__ __inline__ ZNCCAndErrorResult computeZNCCAndError3D(
     const float* refImage, const float* tarImage,
     float centerZ, float centerY, float centerX, const float* warpParams,
     int depth, int height, int width, int subsetRadius)

@@ -108,6 +108,16 @@ namespace StudyCorr_GPU
         void clear();
     };
 
+	struct CudaPOI2DS
+    {
+		Point2D left_coor, right_coor;
+		Point3D coor3D;
+        DeformationVector3D deformation;
+        Result2DS result;
+        StrainVector3D strain;
+        float subset_radius_x, subset_radius_y;
+    };
+
     // 立体 DIC 的 POI 类
     class POI2DS : public Point2D
     {

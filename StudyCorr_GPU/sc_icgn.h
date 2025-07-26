@@ -1,6 +1,8 @@
 #pragma once
 #include <cuda_runtime.h>
+#include <cassert>
 #include "sc_poi.h"
+#include"sc_icgn_device_function.cuh"
 
 namespace StudyCorr_GPU {
 

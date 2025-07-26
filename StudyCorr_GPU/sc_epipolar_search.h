@@ -1,6 +1,7 @@
 #pragma once
 #include <cuda_runtime.h>
 #include "sc_poi.h"
+#include"sc_icgn_device_function.cuh"
 
 namespace StudyCorr_GPU {
 
@@ -17,12 +18,12 @@ private:
     // host variables
     int subset_radius; // 子集半径
     int search_step; // 搜索步长
-    const float* h_F[9]; // 基础矩阵
+    float h_F[9]; // 正确：基础矩阵
 
     // device variables
     float* d_ref_image = nullptr;
     float* d_tar_image = nullptr;
-    int height, width;
+    int height = 0, width = 0;
     float* d_F = nullptr; // Fundamental matrix
 };
 

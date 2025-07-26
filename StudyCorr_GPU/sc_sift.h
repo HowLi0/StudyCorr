@@ -14,7 +14,7 @@ public:
     void release();
 
     // 输入两幅图像，准备CUDA内存
-    void prepare_cuda(const float* ref_img, const float* tar_img, int width, int height, cudaStream_t stream = 0);
+    void prepare_cuda(const float* ref_img, const float* tar_img, int height, int width, cudaStream_t stream = 0);
 
     // 批量检测+匹配，直接输出配对后数组
     void compute_match_batch_cuda(cudaStream_t stream = 0);
