@@ -20,3 +20,7 @@
 //#include "sc_stereovision.cuh"
 //#include "sc_strain.cuh"
 //#include "sc_subset.cuh"
+
+// Data-Oriented Design (DOD) interfaces for high performance
+#include "sc_poi_dod.h"
+#include "sc_icgn_dod.h"
