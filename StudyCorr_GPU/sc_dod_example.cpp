@@ -29,9 +29,9 @@ void example_icgn2d_dod()
     std::vector<CudaPOI2D> pois_aos(num_pois);
     
     // Initialize POIs with positions in a grid
-    int grid_size = static_cast<int>(sqrt(num_pois));
+    int grid_size = static_cast<int>(ceil(sqrt(num_pois)));
     int step = 50;
-    for (int i = 0; i < grid_size; i++) {
+    for (int i = 0; i < grid_size && (i * grid_size) < num_pois; i++) {
         for (int j = 0; j < grid_size; j++) {
             int idx = i * grid_size + j;
             if (idx >= num_pois) break;

@@ -6,6 +6,7 @@
 #include "sc_icgn_dod.h"
 #include "sc_icgn.h"
 #include "sc_icgn_device_function.cuh"
+#include "sc_cuda_check.h"
 
 namespace StudyCorr_GPU {
 
@@ -29,7 +30,7 @@ __global__ void icgn2d_batch_kernel_dod(
     float* strain_exx, float* strain_eyy, float* strain_exy,
     // Parameters
     int subsetRadius, double convergenceThreshold, int maxIterations,
-    int N, float numParams)
+    int N, int numParams)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
@@ -97,7 +98,9 @@ __global__ void icgn2d_batch_kernel_dod(
         float currentZNCC = znccError.zncc;
         float* errorVector = znccError.errorVector;
 
-        bool znccConverged = (iter > 0) && (fabs(currentZNCC - prevZNCC) < convergenceThreshold);
+        // Use a separate threshold for ZNCC convergence (ZNCC is in range [-1, 1])
+        const float znccConvergenceThreshold = 0.0001f;
+        bool znccConverged = (iter > 0) && (fabs(currentZNCC - prevZNCC) < znccConvergenceThreshold);
         if (znccConverged) {
             converged = true;
             result_zncc[idx] = currentZNCC;
@@ -222,11 +225,13 @@ __global__ void icgn3d1_batch_kernel_dod(
     warpParams[10] = deform_wy[idx];
     warpParams[11] = deform_wz[idx];
 
-    // TODO: Implement 3D ICGN iteration logic
-    // This is a placeholder - the full 3D implementation would follow
-    // the same pattern as 2D but with 3D-specific computations
+    // TODO: Full 3D ICGN implementation needed:
+    // - computeHessian3D() for 3D subset gradients
+    // - computeZNCCAndError3D() for 3D correlation calculation
+    // - solveLinearSystem() for 3D parameter updates
+    // - 3D trilinear interpolation for warped coordinates
+    // Currently returns placeholder values until implementation is complete
     
-    // For now, just write back the input deformation
     result_zncc[idx] = 0.0f;
     result_iteration[idx] = 0;
     result_convergence[idx] = 0.0f;
@@ -277,7 +282,7 @@ void ICGN2D1BatchGpuDOD::compute_batch_cuda(POI2D_SoA& pois_soa, cudaStream_t st
         pois_soa.exx, pois_soa.eyy, pois_soa.exy,
         // Parameters
         param.subsetRadius, param.convergenceThreshold, param.maxIterations,
-        N, 6.0f // numParams for 1st order
+        N, 6 // numParams for 1st order
     );
 }
 
@@ -307,11 +312,11 @@ void ICGN2D2BatchGpuDOD::prepare_cuda(const float* ref_image, const float* tar_i
     this->param = param;
 
     size_t img_size = height * width * sizeof(float);
-    cudaMalloc(&d_ref_image, img_size);
-    cudaMalloc(&d_tar_image, img_size);
+    CUDA_CHECK(cudaMalloc(&d_ref_image, img_size));
+    CUDA_CHECK(cudaMalloc(&d_tar_image, img_size));
 
-    cudaMemcpyAsync(d_ref_image, ref_image, img_size, cudaMemcpyHostToDevice, stream);
-    cudaMemcpyAsync(d_tar_image, tar_image, img_size, cudaMemcpyHostToDevice, stream);
+    CUDA_CHECK(cudaMemcpyAsync(d_ref_image, ref_image, img_size, cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_tar_image, tar_image, img_size, cudaMemcpyHostToDevice, stream));
 }
 
 void ICGN2D2BatchGpuDOD::compute_batch_cuda(POI2D_SoA& pois_soa, cudaStream_t stream) {
@@ -337,7 +342,7 @@ void ICGN2D2BatchGpuDOD::compute_batch_cuda(POI2D_SoA& pois_soa, cudaStream_t st
         pois_soa.exx, pois_soa.eyy, pois_soa.exy,
         // Parameters
         param.subsetRadius, param.convergenceThreshold, param.maxIterations,
-        N, 12.0f // numParams for 2nd order
+        N, 12 // numParams for 2nd order
     );
 }
 
@@ -368,11 +373,11 @@ void ICGN3D1BatchGpuDOD::prepare_cuda(const float* ref_image, const float* tar_i
     this->param = param;
 
     size_t img_size = dim_x * dim_y * dim_z * sizeof(float);
-    cudaMalloc(&d_ref_image, img_size);
-    cudaMalloc(&d_tar_image, img_size);
+    CUDA_CHECK(cudaMalloc(&d_ref_image, img_size));
+    CUDA_CHECK(cudaMalloc(&d_tar_image, img_size));
 
-    cudaMemcpy(d_ref_image, ref_image, img_size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_tar_image, tar_image, img_size, cudaMemcpyHostToDevice);
+    CUDA_CHECK(cudaMemcpy(d_ref_image, ref_image, img_size, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_tar_image, tar_image, img_size, cudaMemcpyHostToDevice));
 }
 
 void ICGN3D1BatchGpuDOD::compute_batch_cuda(POI3D_SoA& pois_soa, cudaStream_t stream) {

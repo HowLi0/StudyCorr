@@ -53,6 +53,7 @@ namespace StudyCorr_GPU {
     };
 
     // DOD version of 3D ICGN1 batch processing
+    // NOTE: This is currently experimental - full 3D ICGN iteration not yet implemented
     class ICGN3D1BatchGpuDOD {
     public:
         ICGN3D1BatchGpuDOD();

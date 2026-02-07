@@ -4,6 +4,7 @@
 
 #include "sc_poi_dod.h"
 #include "sc_poi.h"
+#include "sc_cuda_check.h"
 #include <cuda_runtime.h>
 #include <cstring>
 
@@ -60,39 +61,39 @@ namespace StudyCorr_GPU
         size_t size = count * sizeof(float);
         
         // Allocate position data
-        cudaMalloc(&soa.x, size);
-        cudaMalloc(&soa.y, size);
+        CUDA_CHECK(cudaMalloc(&soa.x, size));
+        CUDA_CHECK(cudaMalloc(&soa.y, size));
         
         // Allocate deformation parameters
-        cudaMalloc(&soa.u, size);
-        cudaMalloc(&soa.ux, size);
-        cudaMalloc(&soa.uy, size);
-        cudaMalloc(&soa.uxx, size);
-        cudaMalloc(&soa.uxy, size);
-        cudaMalloc(&soa.uyy, size);
-        cudaMalloc(&soa.v, size);
-        cudaMalloc(&soa.vx, size);
-        cudaMalloc(&soa.vy, size);
-        cudaMalloc(&soa.vxx, size);
-        cudaMalloc(&soa.vxy, size);
-        cudaMalloc(&soa.vyy, size);
+        CUDA_CHECK(cudaMalloc(&soa.u, size));
+        CUDA_CHECK(cudaMalloc(&soa.ux, size));
+        CUDA_CHECK(cudaMalloc(&soa.uy, size));
+        CUDA_CHECK(cudaMalloc(&soa.uxx, size));
+        CUDA_CHECK(cudaMalloc(&soa.uxy, size));
+        CUDA_CHECK(cudaMalloc(&soa.uyy, size));
+        CUDA_CHECK(cudaMalloc(&soa.v, size));
+        CUDA_CHECK(cudaMalloc(&soa.vx, size));
+        CUDA_CHECK(cudaMalloc(&soa.vy, size));
+        CUDA_CHECK(cudaMalloc(&soa.vxx, size));
+        CUDA_CHECK(cudaMalloc(&soa.vxy, size));
+        CUDA_CHECK(cudaMalloc(&soa.vyy, size));
         
         // Allocate result data
-        cudaMalloc(&soa.u0, size);
-        cudaMalloc(&soa.v0, size);
-        cudaMalloc(&soa.zncc, size);
-        cudaMalloc(&soa.iteration, size);
-        cudaMalloc(&soa.convergence, size);
-        cudaMalloc(&soa.feature, size);
+        CUDA_CHECK(cudaMalloc(&soa.u0, size));
+        CUDA_CHECK(cudaMalloc(&soa.v0, size));
+        CUDA_CHECK(cudaMalloc(&soa.zncc, size));
+        CUDA_CHECK(cudaMalloc(&soa.iteration, size));
+        CUDA_CHECK(cudaMalloc(&soa.convergence, size));
+        CUDA_CHECK(cudaMalloc(&soa.feature, size));
         
         // Allocate strain data
-        cudaMalloc(&soa.exx, size);
-        cudaMalloc(&soa.eyy, size);
-        cudaMalloc(&soa.exy, size);
+        CUDA_CHECK(cudaMalloc(&soa.exx, size));
+        CUDA_CHECK(cudaMalloc(&soa.eyy, size));
+        CUDA_CHECK(cudaMalloc(&soa.exy, size));
         
         // Allocate subset radius
-        cudaMalloc(&soa.subset_radius_x, size);
-        cudaMalloc(&soa.subset_radius_y, size);
+        CUDA_CHECK(cudaMalloc(&soa.subset_radius_x, size));
+        CUDA_CHECK(cudaMalloc(&soa.subset_radius_y, size));
     }
     
     // Free POI2D_SoA memory
@@ -219,45 +220,45 @@ namespace StudyCorr_GPU
         size_t size = count * sizeof(float);
         
         // Allocate position data
-        cudaMalloc(&soa.x, size);
-        cudaMalloc(&soa.y, size);
-        cudaMalloc(&soa.z, size);
+        CUDA_CHECK(cudaMalloc(&soa.x, size));
+        CUDA_CHECK(cudaMalloc(&soa.y, size));
+        CUDA_CHECK(cudaMalloc(&soa.z, size));
         
         // Allocate deformation parameters
-        cudaMalloc(&soa.u, size);
-        cudaMalloc(&soa.ux, size);
-        cudaMalloc(&soa.uy, size);
-        cudaMalloc(&soa.uz, size);
-        cudaMalloc(&soa.v, size);
-        cudaMalloc(&soa.vx, size);
-        cudaMalloc(&soa.vy, size);
-        cudaMalloc(&soa.vz, size);
-        cudaMalloc(&soa.w, size);
-        cudaMalloc(&soa.wx, size);
-        cudaMalloc(&soa.wy, size);
-        cudaMalloc(&soa.wz, size);
+        CUDA_CHECK(cudaMalloc(&soa.u, size));
+        CUDA_CHECK(cudaMalloc(&soa.ux, size));
+        CUDA_CHECK(cudaMalloc(&soa.uy, size));
+        CUDA_CHECK(cudaMalloc(&soa.uz, size));
+        CUDA_CHECK(cudaMalloc(&soa.v, size));
+        CUDA_CHECK(cudaMalloc(&soa.vx, size));
+        CUDA_CHECK(cudaMalloc(&soa.vy, size));
+        CUDA_CHECK(cudaMalloc(&soa.vz, size));
+        CUDA_CHECK(cudaMalloc(&soa.w, size));
+        CUDA_CHECK(cudaMalloc(&soa.wx, size));
+        CUDA_CHECK(cudaMalloc(&soa.wy, size));
+        CUDA_CHECK(cudaMalloc(&soa.wz, size));
         
         // Allocate result data
-        cudaMalloc(&soa.u0, size);
-        cudaMalloc(&soa.v0, size);
-        cudaMalloc(&soa.w0, size);
-        cudaMalloc(&soa.zncc, size);
-        cudaMalloc(&soa.iteration, size);
-        cudaMalloc(&soa.convergence, size);
-        cudaMalloc(&soa.feature, size);
+        CUDA_CHECK(cudaMalloc(&soa.u0, size));
+        CUDA_CHECK(cudaMalloc(&soa.v0, size));
+        CUDA_CHECK(cudaMalloc(&soa.w0, size));
+        CUDA_CHECK(cudaMalloc(&soa.zncc, size));
+        CUDA_CHECK(cudaMalloc(&soa.iteration, size));
+        CUDA_CHECK(cudaMalloc(&soa.convergence, size));
+        CUDA_CHECK(cudaMalloc(&soa.feature, size));
         
         // Allocate strain data
-        cudaMalloc(&soa.exx, size);
-        cudaMalloc(&soa.eyy, size);
-        cudaMalloc(&soa.ezz, size);
-        cudaMalloc(&soa.exy, size);
-        cudaMalloc(&soa.eyz, size);
-        cudaMalloc(&soa.ezx, size);
+        CUDA_CHECK(cudaMalloc(&soa.exx, size));
+        CUDA_CHECK(cudaMalloc(&soa.eyy, size));
+        CUDA_CHECK(cudaMalloc(&soa.ezz, size));
+        CUDA_CHECK(cudaMalloc(&soa.exy, size));
+        CUDA_CHECK(cudaMalloc(&soa.eyz, size));
+        CUDA_CHECK(cudaMalloc(&soa.ezx, size));
         
         // Allocate subset radius
-        cudaMalloc(&soa.subset_radius_x, size);
-        cudaMalloc(&soa.subset_radius_y, size);
-        cudaMalloc(&soa.subset_radius_z, size);
+        CUDA_CHECK(cudaMalloc(&soa.subset_radius_x, size));
+        CUDA_CHECK(cudaMalloc(&soa.subset_radius_y, size));
+        CUDA_CHECK(cudaMalloc(&soa.subset_radius_z, size));
     }
     
     // Free POI3D_SoA memory
@@ -524,31 +525,31 @@ namespace StudyCorr_GPU
     {
         size_t size = host_soa.count * sizeof(float);
         
-        cudaMemcpyAsync(device_soa.x, host_soa.x, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.y, host_soa.y, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.u, host_soa.u, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.ux, host_soa.ux, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.uy, host_soa.uy, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.uxx, host_soa.uxx, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.uxy, host_soa.uxy, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.uyy, host_soa.uyy, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.v, host_soa.v, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.vx, host_soa.vx, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.vy, host_soa.vy, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.vxx, host_soa.vxx, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.vxy, host_soa.vxy, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.vyy, host_soa.vyy, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.u0, host_soa.u0, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.v0, host_soa.v0, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.zncc, host_soa.zncc, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.iteration, host_soa.iteration, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.convergence, host_soa.convergence, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.feature, host_soa.feature, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.exx, host_soa.exx, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.eyy, host_soa.eyy, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.exy, host_soa.exy, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.subset_radius_x, host_soa.subset_radius_x, size, cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync(device_soa.subset_radius_y, host_soa.subset_radius_y, size, cudaMemcpyHostToDevice, stream);
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.x, host_soa.x, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.y, host_soa.y, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.u, host_soa.u, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.ux, host_soa.ux, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.uy, host_soa.uy, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.uxx, host_soa.uxx, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.uxy, host_soa.uxy, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.uyy, host_soa.uyy, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.v, host_soa.v, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.vx, host_soa.vx, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.vy, host_soa.vy, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.vxx, host_soa.vxx, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.vxy, host_soa.vxy, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.vyy, host_soa.vyy, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.u0, host_soa.u0, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.v0, host_soa.v0, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.zncc, host_soa.zncc, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.iteration, host_soa.iteration, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.convergence, host_soa.convergence, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.feature, host_soa.feature, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.exx, host_soa.exx, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.eyy, host_soa.eyy, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.exy, host_soa.exy, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.subset_radius_x, host_soa.subset_radius_x, size, cudaMemcpyHostToDevice, stream));
+        CUDA_CHECK(cudaMemcpyAsync(device_soa.subset_radius_y, host_soa.subset_radius_y, size, cudaMemcpyHostToDevice, stream));
     }
     
     // Copy POI2D_SoA from device to host
